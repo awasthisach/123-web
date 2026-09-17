@@ -352,14 +352,14 @@ export default function App() {
 
       if (isUserCancel) {
         showDriveToast('Google Sign-In विंडो बंद कर दी गई। आप पुनः प्रयास कर सकते हैं या डेमो ड्राइव चुन सकते हैं।');
+        setIsGoogleLoading(false);
       } else {
         console.warn('Google Sign-In notice:', message);
         setAuthErrorMessage(message);
         setAuthErrorModalOpen(true);
         showDriveToast(`Sign-in status: ${message}`);
+        setIsGoogleLoading(false);
       }
-    } finally {
-      setIsGoogleLoading(false);
     }
   };
 

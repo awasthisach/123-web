@@ -23,12 +23,8 @@ export const AuthErrorModal: React.FC<AuthErrorModalProps> = ({
   const isUnauthorizedDomain =
     errorMessage.toLowerCase().includes('unauthorized-domain') ||
     errorMessage.toLowerCase().includes('origin') ||
+    errorMessage.toLowerCase().includes('mismatch') ||
     errorMessage.toLowerCase().includes('not authorized');
-
-  const isPopupBlocked =
-    errorMessage.toLowerCase().includes('popup-blocked') ||
-    errorMessage.toLowerCase().includes('closed-by-user') ||
-    errorMessage.toLowerCase().includes('cancelled');
 
   return (
     <div
@@ -84,16 +80,7 @@ export const AuthErrorModal: React.FC<AuthErrorModalProps> = ({
                 🌐 डोमेन ऑथराइजेशन की आवश्यकता (Domain Authorization):
               </p>
               <p className="text-zinc-300">
-                Google और Firebase सुरक्षा कारणों से किसी नए डोमेन (<code className="text-blue-300 bg-blue-950 px-1 py-0.5 rounded font-mono">awasthisach.github.io</code>) पर सीधे तब तक साइन-इन की अनुमति नहीं देते जब तक वह Firebase Console में <span className="text-white font-semibold">Authorized Domains</span> में न जोड़ा गया हो।
-              </p>
-            </>
-          ) : isPopupBlocked ? (
-            <>
-              <p className="font-semibold text-blue-300">
-                📱 मोबाइल ब्राउज़र पॉपअप ब्लॉक (Popup Suppressed):
-              </p>
-              <p className="text-zinc-300">
-                मोबाइल Chrome ने सुरक्षा कारणों से Google Sign-In पॉपअप को रोक दिया या विंडो बंद हो गई।
+                Google सुरक्षा कारणों से इस नए डेवलपमेंट लिंक को नहीं पहचान पा रहा है। इसे ठीक करने के लिए आपको Google Cloud Console में OAuth 2.0 Client IDs सेटिंग में <span className="text-white font-semibold">Authorized JavaScript origins</span> में यह लिंक (<code className="text-blue-300 bg-blue-950 px-1 py-0.5 rounded font-mono">https://ais-dev-y3xuzxdnayshpet3dy7dlt-608230001000.asia-southeast1.run.app</code>) जोड़ना होगा।
               </p>
             </>
           ) : (
