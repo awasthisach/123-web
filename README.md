@@ -1,6 +1,6 @@
 # Perfect VVF — Secure Drive, Storage Scanner & Privacy Vault
 
-[![Deploy to GitHub Pages](https://github.com/awasthisach/123-web/actions/workflows/deploy.yml/badge.svg)](https://github.com/awasthisach/123-web/actions/workflows/deploy.yml)
+[![Deploy to GitHub Pages](https://github.com/awasthisach/Web-The-Perfect-VVF/actions/workflows/deploy.yml/badge.svg)](https://github.com/awasthisach/Web-The-Perfect-VVF/actions/workflows/deploy.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg)](https://nodejs.org)
 [![React](https://img.shields.io/badge/React-18-blue.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
@@ -13,7 +13,7 @@
 
 ## 🌐 Live Deployments
 
-- **GitHub Pages**: [https://awasthisach.github.io/123-web/](https://awasthisach.github.io/123-web/)
+- **GitHub Pages**: [https://awasthisach.github.io/Web-The-Perfect-VVF/](https://awasthisach.github.io/Web-The-Perfect-VVF/)
 - **AI Studio Web App**: [https://ais-pre-y3xuzxdnayshpet3dy7dlt-608230001000.asia-southeast1.run.app](https://ais-pre-y3xuzxdnayshpet3dy7dlt-608230001000.asia-southeast1.run.app)
 
 ---
@@ -68,8 +68,8 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/awasthisach/123-web.git
-cd 123-web
+git clone https://github.com/awasthisach/Web-The-Perfect-VVF.git
+cd Web-The-Perfect-VVF
 
 # 2. Install dependencies
 npm install
@@ -97,11 +97,11 @@ npm run preview
 This repository includes an automated GitHub Actions workflow (`.github/workflows/deploy.yml`) that builds and deploys static assets to **GitHub Pages** on every push to `main` or `master`.
 
 ### One-Time Activation on GitHub:
-1. Navigate to your repository **Settings** → **Pages** (`https://github.com/awasthisach/123-web/settings/pages`).
+1. Navigate to your repository **Settings** → **Pages** (`https://github.com/awasthisach/Web-The-Perfect-VVF/settings/pages`).
 2. Under **Build and deployment**, set **Source** to **`GitHub Actions`**.
 3. Re-run the deployment workflow under the **Actions** tab to publish the site at:
    ```
-   https://awasthisach.github.io/123-web/
+   https://awasthisach.github.io/Web-The-Perfect-VVF/
    ```
 
 ---
