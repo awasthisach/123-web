@@ -2,6 +2,8 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -111,6 +113,21 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // First, check if there's a pending redirect result (e.g. from mobile fallback)
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          cachedAccessToken = credential.accessToken;
+          if (onAuthSuccess) onAuthSuccess(result.user, cachedAccessToken);
+        }
+      }
+    })
+    .catch((error) => {
+      console.warn('Redirect auth result error:', error);
+    });
+
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       if (cachedAccessToken) {
@@ -162,9 +179,6 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
   isSigningIn = true;
   let primaryError: any = null;
 
-  // Ensure GSI is ready if possible
-  await ensureGsiLoaded();
-
   // Strategy 1: Google Identity Services (GSI) token client (best for mobile and GitHub Pages)
   if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && firebaseConfig.oAuthClientId) {
     try {
@@ -193,20 +207,21 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
     if (!credential?.accessToken) {
       throw new Error('Could not obtain OAuth access token for Google Drive');
     }
-
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    const isUserDismissal =
+    const isPopupError =
       error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/popup-blocked' ||
       error?.code === 'auth/cancelled-popup-request' ||
-      String(error?.message || '').includes('popup-closed-by-user') ||
-      String(error?.message || '').includes('cancelled-popup-request');
+      String(error?.message || '').includes('popup');
 
-    if (isUserDismissal) {
-      // User closed the popup window or switched away - this is normal behavior, not a critical error
-      console.info('Google sign-in popup dismissed by user.');
-      return null;
+    if (isPopupError) {
+      console.info('Popup blocked or closed. Falling back to signInWithRedirect...');
+      // Execute redirect fallback immediately
+      signInWithRedirect(auth, provider);
+      // Return a promise that never resolves so the UI stays in loading state until redirect happens
+      return new Promise(() => {});
     }
 
     // Genuine failure: log as warning
