@@ -12,14 +12,18 @@ import {
   SlidersHorizontal,
   X,
   ExternalLink,
+  Cloud,
+  FolderInput,
 } from 'lucide-react';
-import { DriveFile, FileCategory } from '../types';
+import { DriveFile, FileCategory, FolderItem } from '../types';
 import { runSemanticSearch } from '../lib/searchEngine';
 import { formatBytes } from '../lib/driveApi';
 
 interface SemanticSearchProps {
   files: DriveFile[];
+  folders?: FolderItem[];
   onSelectFile: (file: DriveFile) => void;
+  onMoveFile?: (file: DriveFile) => void;
 }
 
 const SAMPLE_PROMPTS = [
@@ -27,12 +31,15 @@ const SAMPLE_PROMPTS = [
   'team offsite photos in san francisco',
   'confidential client contracts vault',
   'mobile and tablet responsive wireframes',
+  'google drive documents and sheets',
   'sales projections and regional quota',
 ];
 
 export const SemanticSearch: React.FC<SemanticSearchProps> = ({
   files,
+  folders = [],
   onSelectFile,
+  onMoveFile,
 }) => {
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -41,8 +48,17 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
     return runSemanticSearch(query, files, selectedCategory);
   }, [query, files, selectedCategory]);
 
+  const driveFilesCount = useMemo(() => {
+    return files.filter(f => f.isGoogleDriveItem).length;
+  }, [files]);
+
   const categories: { label: string; value: string; icon: React.ReactNode }[] = [
     { label: 'All Files', value: 'all', icon: null },
+    {
+      label: `Google Drive (${driveFilesCount})`,
+      value: 'google_drive',
+      icon: <Cloud className="w-3.5 h-3.5 text-blue-500" />,
+    },
     { label: 'Documents', value: 'document', icon: <FileText className="w-3.5 h-3.5" /> },
     { label: 'Images', value: 'image', icon: <ImageIcon className="w-3.5 h-3.5" /> },
     { label: 'Spreadsheets', value: 'spreadsheet', icon: <Table className="w-3.5 h-3.5" /> },
@@ -78,14 +94,14 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
               <Sparkles className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg sm:text-xl font-bold tracking-tight">AI Semantic Vector Search</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  Concept Match
+                  Google Drive & Cloud Sync
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-                Search files by concept, topic, or natural language query without needing exact filename matches.
+                Search across your Google Drive files and local storage by concept, topic, or natural language query without needing exact filename matches.
               </p>
             </div>
           </div>
@@ -101,7 +117,7 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Describe what you are looking for (e.g. 'recent team photos', 'fiscal audits')..."
+            placeholder="Describe what you are looking for (e.g. 'recent team photos', 'fiscal audits', 'presentation slides')..."
             className="w-full pl-11 pr-10 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-xs sm:text-sm min-h-[44px]"
           />
           {query && (
@@ -124,7 +140,7 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
               key={sample}
               type="button"
               onClick={() => setQuery(sample)}
-              className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 text-[11px] shrink-0 border border-zinc-200/60 dark:border-zinc-700/60 transition min-h-[36px] flex items-center"
+              className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 text-[11px] shrink-0 border border-zinc-200/60 dark:border-zinc-700/60 transition min-h-[36px] flex items-center cursor-pointer"
             >
               {sample}
             </button>
@@ -140,7 +156,7 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
                 key={cat.value}
                 type="button"
                 onClick={() => setSelectedCategory(cat.value)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition min-h-[38px] ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition min-h-[38px] cursor-pointer ${
                   selectedCategory === cat.value
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
@@ -180,11 +196,13 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
             return (
               <div
                 key={file.id}
-                onClick={() => onSelectFile(file)}
-                className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-blue-500/40 cursor-pointer transition shadow-xs group"
+                className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-blue-500/40 transition shadow-xs group"
               >
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
+                  <div
+                    onClick={() => onSelectFile(file)}
+                    className="flex items-start gap-3 min-w-0 cursor-pointer flex-1"
+                  >
                     {file.thumbnailUrl ? (
                       <img
                         src={file.thumbnailUrl}
@@ -193,7 +211,11 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
                       />
                     ) : (
                       <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-500 border border-blue-200 dark:border-blue-900/50 flex items-center justify-center shrink-0">
-                        <FileText className="w-6 h-6" />
+                        {file.isGoogleDriveItem ? (
+                          <Cloud className="w-6 h-6 text-blue-500" />
+                        ) : (
+                          <FileText className="w-6 h-6" />
+                        )}
                       </div>
                     )}
 
@@ -202,6 +224,11 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
                         <h4 className="text-xs sm:text-sm font-bold text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate">
                           {file.name}
                         </h4>
+                        {file.isGoogleDriveItem && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                            <Cloud className="w-2.5 h-2.5" /> Drive
+                          </span>
+                        )}
                         {file.isEncrypted && (
                           <span className="p-0.5 rounded bg-amber-500/10 text-amber-500">
                             <Lock className="w-3 h-3" />
@@ -225,7 +252,8 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-zinc-100 dark:border-zinc-800">
+                  {/* Right side: match score & quick actions */}
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2.5 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-zinc-100 dark:border-zinc-800">
                     <div className="flex items-center gap-1.5">
                       <div className="w-12 sm:w-16 h-2 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
                         <div
@@ -241,6 +269,37 @@ export const SemanticSearch: React.FC<SemanticSearchProps> = ({
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${badge.bg}`}>
                       {badge.label}
                     </span>
+
+                    {/* Quick Move / Open in Drive action buttons */}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {onMoveFile && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onMoveFile(file);
+                          }}
+                          title="Move to another folder (फ़ोल्डर में मूव करें)"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-blue-50 hover:text-blue-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 transition cursor-pointer min-h-[32px]"
+                        >
+                          <FolderInput className="w-3 h-3" />
+                          <span>Move</span>
+                        </button>
+                      )}
+
+                      {file.webViewLink && (
+                        <a
+                          href={file.webViewLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Open in Google Drive"
+                          className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 text-[11px] border border-zinc-200 dark:border-zinc-700 transition min-h-[32px] min-w-[32px] flex items-center justify-center cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

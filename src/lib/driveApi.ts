@@ -1,4 +1,12 @@
-import { DriveFile, FileCategory } from '../types';
+import { DriveFile, FileCategory, FolderItem } from '../types';
+
+export const INITIAL_FOLDERS: FolderItem[] = [
+  { id: 'finance', name: 'Financial Audits', color: 'emerald', description: 'Fiscal reports, spreadsheets and audits' },
+  { id: 'projects', name: 'Work & Projects', color: 'blue', description: 'Product roadmaps, presentations and assets' },
+  { id: 'design', name: 'Design Assets', color: 'purple', description: 'Wireframes, UI screenshots and prototypes' },
+  { id: 'personal', name: 'Legal & Contracts', color: 'amber', description: 'Client master agreements and legal files' },
+  { id: 'archive', name: 'Archive & Backups', color: 'zinc', description: 'Release packages and code backups' },
+];
 
 export const INITIAL_FILES: DriveFile[] = [
   {
@@ -9,6 +17,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-14T14:32:00Z',
     createdTime: '2026-08-01T09:00:00Z',
     category: 'document',
+    folderId: 'finance',
     isOffline: true,
     isEncrypted: false,
     contentHash: 'a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6',
@@ -24,6 +33,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-12T11:15:00Z',
     createdTime: '2026-09-12T11:15:00Z',
     category: 'image',
+    folderId: 'projects',
     thumbnailUrl: 'https://images.unsplash.com/photo-1506146332389-18140dc7b2fb?w=480&auto=format&fit=crop&q=75',
     isOffline: true,
     isEncrypted: false,
@@ -40,6 +50,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-13T08:20:00Z',
     createdTime: '2026-09-13T08:20:00Z',
     category: 'image',
+    folderId: 'projects',
     thumbnailUrl: 'https://images.unsplash.com/photo-1506146332389-18140dc7b2fb?w=480&auto=format&fit=crop&q=75',
     isOffline: false,
     isEncrypted: false,
@@ -56,6 +67,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-15T18:45:00Z',
     createdTime: '2026-09-02T10:00:00Z',
     category: 'document',
+    folderId: 'projects',
     isOffline: true,
     isEncrypted: false,
     contentHash: 'f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5',
@@ -71,6 +83,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-10T16:00:00Z',
     createdTime: '2026-09-10T16:00:00Z',
     category: 'document',
+    folderId: 'personal',
     isOffline: true,
     isEncrypted: true,
     contentHash: 'e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6',
@@ -86,6 +99,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-16T09:12:00Z',
     createdTime: '2026-09-15T14:30:00Z',
     category: 'image',
+    folderId: 'design',
     thumbnailUrl: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=480&auto=format&fit=crop&q=75',
     isOffline: false,
     isEncrypted: false,
@@ -102,6 +116,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-11T20:10:00Z',
     createdTime: '2026-07-20T11:00:00Z',
     category: 'spreadsheet',
+    folderId: 'finance',
     isOffline: false,
     isEncrypted: false,
     contentHash: 'b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3',
@@ -117,6 +132,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-11T20:15:00Z',
     createdTime: '2026-09-11T20:15:00Z',
     category: 'spreadsheet',
+    folderId: 'finance',
     isOffline: false,
     isEncrypted: false,
     contentHash: 'b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3', // Duplicate!
@@ -132,6 +148,7 @@ export const INITIAL_FILES: DriveFile[] = [
     modifiedTime: '2026-09-08T17:22:00Z',
     createdTime: '2026-09-08T17:22:00Z',
     category: 'archive',
+    folderId: 'archive',
     isOffline: true,
     isEncrypted: false,
     contentHash: 'd3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4',

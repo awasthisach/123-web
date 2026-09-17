@@ -16,6 +16,8 @@ import {
   Layers,
   Touchpad,
   Crosshair,
+  RefreshCw,
+  Zap,
 } from 'lucide-react';
 import { DeviceProfile, DeviceOrientation } from '../types';
 import { EMULATOR_DEVICES } from '../lib/devices';
@@ -28,6 +30,8 @@ interface EmulatorToolbarProps {
   showOverflowInspector: boolean;
   showTouchTargetAudit: boolean;
   activeViewMode: 'emulator' | 'native' | 'audit_report';
+  isReloading?: boolean;
+  autoReload?: boolean;
   onSelectDevice: (device: DeviceProfile) => void;
   onToggleOrientation: () => void;
   onSetZoom: (scale: number) => void;
@@ -35,6 +39,8 @@ interface EmulatorToolbarProps {
   onToggleOverflowInspector: () => void;
   onToggleTouchTargetAudit: () => void;
   onSelectViewMode: (mode: 'emulator' | 'native' | 'audit_report') => void;
+  onToggleAutoReload?: () => void;
+  onManualReload?: () => void;
 }
 
 export const EmulatorToolbar: React.FC<EmulatorToolbarProps> = ({
@@ -45,6 +51,8 @@ export const EmulatorToolbar: React.FC<EmulatorToolbarProps> = ({
   showOverflowInspector,
   showTouchTargetAudit,
   activeViewMode,
+  isReloading = false,
+  autoReload = true,
   onSelectDevice,
   onToggleOrientation,
   onSetZoom,
@@ -52,6 +60,8 @@ export const EmulatorToolbar: React.FC<EmulatorToolbarProps> = ({
   onToggleOverflowInspector,
   onToggleTouchTargetAudit,
   onSelectViewMode,
+  onToggleAutoReload,
+  onManualReload,
 }) => {
   const currentWidth = orientation === 'portrait' ? currentDevice.width : currentDevice.height;
   const currentHeight = orientation === 'portrait' ? currentDevice.height : currentDevice.width;
@@ -253,6 +263,43 @@ export const EmulatorToolbar: React.FC<EmulatorToolbarProps> = ({
               title="Toggle Touch Target Accessibility Highlighting (Min 44x44px criteria)"
             >
               <Touchpad className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Auto-Reload on Configuration Change Toggle */}
+            <button
+              id="emulator-auto-reload-toggle-btn"
+              type="button"
+              onClick={onToggleAutoReload}
+              title={
+                autoReload
+                  ? 'Auto-Reload is ON: Emulator automatically reloads and recalculates styles whenever device or orientation changes'
+                  : 'Auto-Reload is OFF: Click to enable automatic reload on configuration change'
+              }
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition min-h-[36px] ${
+                autoReload
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Zap className={`w-3.5 h-3.5 ${autoReload ? 'text-emerald-400 fill-emerald-400/40' : 'text-zinc-500'}`} />
+              <span className="text-[11px] font-medium hidden md:inline">
+                Auto-Reload {autoReload ? 'ON' : 'OFF'}
+              </span>
+            </button>
+
+            {/* Manual Reload & Recalculate Styles Button */}
+            <button
+              id="emulator-manual-reload-btn"
+              type="button"
+              onClick={onManualReload}
+              disabled={isReloading}
+              title="Reload emulator view and recalculate layout styles"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 transition min-h-[36px] disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isReloading ? 'animate-spin text-blue-400' : 'text-zinc-300'}`} />
+              <span className="hidden sm:inline text-[11px] font-medium">
+                {isReloading ? 'Recalculating...' : 'Reload'}
+              </span>
             </button>
 
             {/* Metric Tag */}

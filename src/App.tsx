@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Folder,
   HardDrive,
@@ -23,16 +23,28 @@ import {
   Menu,
   X,
   Sliders,
+  Zap,
 } from 'lucide-react';
-import { DriveFile, VaultFile, SyncStats, DeviceProfile, DeviceOrientation } from './types';
-import { INITIAL_FILES } from './lib/driveApi';
+import { DriveFile, VaultFile, SyncStats, DeviceProfile, DeviceOrientation, FolderItem } from './types';
+import { INITIAL_FILES, INITIAL_FOLDERS } from './lib/driveApi';
 import { EMULATOR_DEVICES } from './lib/devices';
 import { Dashboard } from './components/Dashboard';
 import { SyncStatusBadge } from './components/SyncStatusBadge';
 import { Login } from './components/Login';
 import { EmulatorToolbar } from './components/EmulatorToolbar';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { MoveToFolderModal } from './components/MoveToFolderModal';
+import { initAuth, googleSignIn, googleSignOut, getAccessToken } from './lib/firebaseAuth';
+import {
+  fetchGoogleDriveData,
+  moveGoogleDriveFile,
+  createGoogleDriveFolder,
+  deleteGoogleDriveFile,
+} from './lib/googleDriveService';
 
 // Lazy-loaded code-split components for optimal FCP and TTI
+const DeviceStorageScanner = React.lazy(() => import('./components/DeviceStorageScanner').then(m => ({ default: m.DeviceStorageScanner })));
 const PrivacyVault = React.lazy(() => import('./components/PrivacyVault').then(m => ({ default: m.PrivacyVault })));
 const DuplicateFinder = React.lazy(() => import('./components/DuplicateFinder').then(m => ({ default: m.DuplicateFinder })));
 const SemanticSearch = React.lazy(() => import('./components/SemanticSearch').then(m => ({ default: m.SemanticSearch })));
@@ -55,6 +67,7 @@ const TabLoadingFallback = () => (
 export default function App() {
   // Files and Vault State
   const [files, setFiles] = useState<DriveFile[]>(INITIAL_FILES);
+  const [folders, setFolders] = useState<FolderItem[]>(INITIAL_FOLDERS);
   const [vaultFiles, setVaultFiles] = useState<VaultFile[]>([
     {
       id: 'vault-init-1',
@@ -71,8 +84,22 @@ export default function App() {
     },
   ]);
 
+  // Google Drive Live Integration State
+  const [isGoogleConnected, setIsGoogleConnected] = useState<boolean>(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [searchMoveTargetFile, setSearchMoveTargetFile] = useState<DriveFile | null>(null);
+  const [driveNotification, setDriveNotification] = useState<string | null>(null);
+
+  const showDriveToast = (msg: string) => {
+    setDriveNotification(msg);
+    setTimeout(() => {
+      setDriveNotification(null);
+    }, 4500);
+  };
+
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'vault' | 'duplicates' | 'search' | 'offline'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'storage_scanner' | 'vault' | 'duplicates' | 'search' | 'offline'>('dashboard');
   const [activeViewMode, setActiveViewMode] = useState<'emulator' | 'native' | 'audit_report'>('emulator');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -83,6 +110,55 @@ export default function App() {
   const [dpr, setDpr] = useState<number>(3);
   const [showOverflowInspector, setShowOverflowInspector] = useState(false);
   const [showTouchTargetAudit, setShowTouchTargetAudit] = useState(false);
+
+  // Device Emulator Auto-Reload & Style Recalculation State
+  const [autoReloadOnConfigChange, setAutoReloadOnConfigChange] = useState<boolean>(true);
+  const [isReloadingEmulator, setIsReloadingEmulator] = useState<boolean>(false);
+  const [emulatorReloadKey, setEmulatorReloadKey] = useState<number>(0);
+  const [lastReloadTimestamp, setLastReloadTimestamp] = useState<string>('');
+
+  const handleReloadEmulator = useCallback(() => {
+    setIsReloadingEmulator(true);
+    setEmulatorReloadKey(prev => prev + 1);
+
+    // Reset container scroll position immediately on reload
+    const scrollContainer = document.getElementById('device-screen-scroll-container');
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 0;
+    }
+
+    // Force browser layout engine recalculations via global window resize & orientationchange events
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new Event('orientationchange'));
+    }
+
+    // Allow DOM to settle and recalculate styles cleanly
+    const timer = setTimeout(() => {
+      setIsReloadingEmulator(false);
+      setLastReloadTimestamp(
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      );
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('resize'));
+      }
+    }, 220);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Automatically reload emulator view whenever device configuration (orientation or device) changes
+  const isFirstMount = useRef(true);
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+
+    if (autoReloadOnConfigChange) {
+      handleReloadEmulator();
+    }
+  }, [currentDevice.id, orientation, autoReloadOnConfigChange, handleReloadEmulator]);
 
   // Sync Stats State
   const [syncStats, setSyncStats] = useState<SyncStats>({
@@ -102,8 +178,56 @@ export default function App() {
     name: 'Awasthi Sach',
     email: 'awasthi.sach@gmail.com',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-    isConnected: true,
+    isConnected: false,
   });
+
+  // Google Drive Auth Listener on mount
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      async (user, token) => {
+        setIsGoogleConnected(true);
+        setGoogleAccessToken(token);
+        setUserProfile({
+          name: user.displayName || 'Google Drive User',
+          email: user.email || 'awasthi.sach@gmail.com',
+          avatar: user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          isConnected: true,
+        });
+
+        try {
+          setIsGoogleLoading(true);
+          const driveData = await fetchGoogleDriveData(token);
+          if (driveData.files.length > 0 || driveData.folders.length > 0) {
+            setFiles(prev => {
+              const driveIds = new Set(driveData.files.map(f => f.id));
+              const remainingLocal = prev.filter(f => !driveIds.has(f.id) && !f.isGoogleDriveItem);
+              return [...driveData.files, ...remainingLocal];
+            });
+            setFolders(prev => {
+              const driveFolderIds = new Set(driveData.folders.map(fd => fd.id));
+              const remainingLocalFolders = prev.filter(fd => !driveFolderIds.has(fd.id));
+              return [...driveData.folders, ...remainingLocalFolders];
+            });
+            setSyncStats(s => ({
+              ...s,
+              status: 'synced',
+              totalSyncedCount: driveData.files.length,
+              lastSynced: new Date().toISOString(),
+            }));
+          }
+        } catch (err) {
+          console.warn('Silent Google Drive initial sync skipped:', err);
+        } finally {
+          setIsGoogleLoading(false);
+        }
+      },
+      () => {
+        setIsGoogleConnected(false);
+        setGoogleAccessToken(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
 
   // Dynamic zoom calculation based on window size to ensure device frame fits neatly (debounced with rAF)
   useEffect(() => {
@@ -126,7 +250,7 @@ export default function App() {
     };
   }, [currentDevice, orientation]);
 
-  // Handlers for File Actions
+  // Handlers for File Actions & Google Drive Operations
   const handleUploadFile = (newFile: DriveFile) => {
     setFiles(prev => [newFile, ...prev]);
     setSyncStats(prev => ({
@@ -145,13 +269,171 @@ export default function App() {
     }, 1200);
   };
 
-  const handleDeleteFile = (id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsGoogleLoading(true);
+      const result = await googleSignIn();
+      if (result) {
+        setGoogleAccessToken(result.accessToken);
+        setIsGoogleConnected(true);
+        setUserProfile({
+          name: result.user.displayName || 'Google Drive User',
+          email: result.user.email || 'awasthi.sach@gmail.com',
+          avatar: result.user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          isConnected: true,
+        });
+
+        const driveData = await fetchGoogleDriveData(result.accessToken);
+        setFiles(prev => {
+          const driveIds = new Set(driveData.files.map(f => f.id));
+          const remaining = prev.filter(f => !driveIds.has(f.id) && !f.isGoogleDriveItem);
+          return [...driveData.files, ...remaining];
+        });
+        setFolders(prev => {
+          const driveFolderIds = new Set(driveData.folders.map(fd => fd.id));
+          const remaining = prev.filter(fd => !driveFolderIds.has(fd.id));
+          return [...driveData.folders, ...remaining];
+        });
+
+        setSyncStats(s => ({
+          ...s,
+          status: 'synced',
+          totalSyncedCount: driveData.files.length,
+          lastSynced: new Date().toISOString(),
+        }));
+
+        showDriveToast(
+          `Google Drive connected! ${driveData.files.length} files & ${driveData.folders.length} folders loaded.`
+        );
+      }
+    } catch (err: any) {
+      console.error('Google Sign-In failed:', err);
+      showDriveToast(`Sign-in failed: ${err.message || 'Unable to connect to Google Drive'}`);
+    } finally {
+      setIsGoogleLoading(false);
+    }
   };
 
-  const handleRemoveMultipleFiles = (ids: string[]) => {
+  const handleGoogleSignOut = async () => {
+    try {
+      await googleSignOut();
+      setIsGoogleConnected(false);
+      setGoogleAccessToken(null);
+      setUserProfile(p => ({ ...p, isConnected: false }));
+      setFiles(INITIAL_FILES);
+      setFolders(INITIAL_FOLDERS);
+      showDriveToast('Disconnected from Google Drive (साइन आउट संपन्न)');
+    } catch (err: any) {
+      console.error('Sign-out error:', err);
+    }
+  };
+
+  const handleSyncGoogleDrive = async () => {
+    const token = googleAccessToken || (await getAccessToken());
+    if (!token) {
+      handleGoogleSignIn();
+      return;
+    }
+
+    try {
+      setIsGoogleLoading(true);
+      const driveData = await fetchGoogleDriveData(token);
+      setFiles(prev => {
+        const driveIds = new Set(driveData.files.map(f => f.id));
+        const remaining = prev.filter(f => !driveIds.has(f.id) && !f.isGoogleDriveItem);
+        return [...driveData.files, ...remaining];
+      });
+      setFolders(prev => {
+        const driveFolderIds = new Set(driveData.folders.map(fd => fd.id));
+        const remaining = prev.filter(fd => !driveFolderIds.has(fd.id));
+        return [...driveData.folders, ...remaining];
+      });
+      setSyncStats(s => ({
+        ...s,
+        status: 'synced',
+        totalSyncedCount: driveData.files.length,
+        lastSynced: new Date().toISOString(),
+      }));
+      showDriveToast(`Google Drive synced: ${driveData.files.length} files up to date!`);
+    } catch (err: any) {
+      console.error('Google Drive Sync failed:', err);
+      showDriveToast(`Sync failed: ${err.message || 'Error communicating with Google Drive'}`);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const handleDeleteFile = async (id: string) => {
+    const fileToDelete = files.find(f => f.id === id);
+    setFiles(prev => prev.filter(f => f.id !== id));
+    const token = googleAccessToken || (await getAccessToken());
+    if (token && fileToDelete?.isGoogleDriveItem) {
+      try {
+        await deleteGoogleDriveFile(token, id);
+        showDriveToast(`"${fileToDelete.name}" deleted from Google Drive`);
+      } catch (err: any) {
+        console.error('Google Drive delete error:', err);
+      }
+    }
+  };
+
+  const handleRemoveMultipleFiles = async (ids: string[]) => {
     const idSet = new Set(ids);
+    const filesToDelete = files.filter(f => idSet.has(f.id));
     setFiles(prev => prev.filter(f => !idSet.has(f.id)));
+    const token = googleAccessToken || (await getAccessToken());
+    if (token) {
+      const driveItems = filesToDelete.filter(f => f.isGoogleDriveItem);
+      if (driveItems.length > 0) {
+        try {
+          await Promise.all(driveItems.map(f => deleteGoogleDriveFile(token, f.id)));
+          showDriveToast(`${driveItems.length} file(s) removed from Google Drive`);
+        } catch (err: any) {
+          console.error('Google Drive batch delete error:', err);
+        }
+      }
+    }
+  };
+
+  const handleCreateFolder = async (newFolder: FolderItem) => {
+    setFolders(prev => [...prev, newFolder]);
+    const token = googleAccessToken || (await getAccessToken());
+    if (token && isGoogleConnected) {
+      try {
+        const created = await createGoogleDriveFolder(token, newFolder.name);
+        setFolders(prev =>
+          prev.map(fd => (fd.id === newFolder.id ? { ...fd, id: created.id } : fd))
+        );
+        showDriveToast(`Folder "${newFolder.name}" created in Google Drive!`);
+      } catch (err: any) {
+        console.error('Google Drive folder creation error:', err);
+      }
+    }
+  };
+
+  const handleMoveFilesToFolder = async (fileIds: string[], targetFolderId: string | undefined) => {
+    const idSet = new Set(fileIds);
+    setFiles(prev =>
+      prev.map(f => (idSet.has(f.id) ? { ...f, folderId: targetFolderId } : f))
+    );
+
+    const token = googleAccessToken || (await getAccessToken());
+    if (token) {
+      const driveFilesToMove = files.filter(f => idSet.has(f.id) && f.isGoogleDriveItem);
+      if (driveFilesToMove.length > 0) {
+        try {
+          await Promise.all(
+            driveFilesToMove.map(f =>
+              moveGoogleDriveFile(token, f.id, targetFolderId || 'root', f.parentIds || [])
+            )
+          );
+          showDriveToast(`${driveFilesToMove.length} Google Drive file(s) moved to folder!`);
+        } catch (err: any) {
+          console.error('Google Drive move error:', err);
+          showDriveToast(`Google Drive move error: ${err.message || 'Check permissions'}`);
+        }
+      }
+    }
   };
 
   const handleToggleStar = (id: string) => {
@@ -202,6 +484,9 @@ export default function App() {
     setCurrentDevice(device);
     setOrientation(orient);
     setActiveViewMode('emulator');
+    if (autoReloadOnConfigChange) {
+      handleReloadEmulator();
+    }
   };
 
   // Dimensions
@@ -253,6 +538,7 @@ export default function App() {
           <div className="hidden md:flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-2xl border border-zinc-200/80 dark:border-zinc-700/60 text-xs">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: Folder },
+              { id: 'storage_scanner', label: 'Phone & SD Scan', icon: Smartphone },
               { id: 'vault', label: 'Privacy Vault', icon: Shield },
               { id: 'duplicates', label: 'Duplicates', icon: Copy },
               { id: 'search', label: 'AI Search', icon: Sparkles },
@@ -281,6 +567,7 @@ export default function App() {
 
           {/* Right Header: Sync Status & User Profile */}
           <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton />
             <SyncStatusBadge
               stats={syncStats}
               onTriggerSync={handleTriggerSync}
@@ -290,10 +577,11 @@ export default function App() {
               userEmail={userProfile.email}
               userName={userProfile.name}
               avatarUrl={userProfile.avatar}
-              isConnected={userProfile.isConnected}
-              onToggleConnection={() =>
-                setUserProfile(p => ({ ...p, isConnected: !p.isConnected }))
-              }
+              isConnected={isGoogleConnected}
+              isLoading={isGoogleLoading}
+              onSignIn={handleGoogleSignIn}
+              onSignOut={handleGoogleSignOut}
+              onSyncDrive={handleSyncGoogleDrive}
             />
           </div>
         </div>
@@ -303,6 +591,7 @@ export default function App() {
           <div className="md:hidden pt-3 pb-2 border-t border-zinc-100 dark:border-zinc-800 mt-2 space-y-1 animate-in fade-in">
             {[
               { id: 'dashboard', label: 'Dashboard Explorer', icon: Folder },
+              { id: 'storage_scanner', label: 'Phone & SD Scanner (फ़ोन व SD मेमोरी)', icon: Smartphone },
               { id: 'vault', label: 'Privacy Vault (AES-256)', icon: Shield },
               { id: 'duplicates', label: 'Duplicate File Cleaner', icon: Copy },
               { id: 'search', label: 'AI Semantic Search', icon: Sparkles },
@@ -338,14 +627,33 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <Dashboard
             files={files}
+            folders={folders}
             vaultFiles={vaultFiles}
             onUploadFile={handleUploadFile}
             onDeleteFile={handleDeleteFile}
+            onDeleteMultipleFiles={handleRemoveMultipleFiles}
+            onMoveFilesToFolder={handleMoveFilesToFolder}
+            onCreateFolder={handleCreateFolder}
             onToggleStar={handleToggleStar}
             onToggleOffline={handleToggleOffline}
             onSelectTab={tab => setActiveTab(tab as any)}
             onSelectPreviewFile={file => setPreviewFile(file)}
+            isGoogleConnected={isGoogleConnected}
+            isGoogleLoading={isGoogleLoading}
+            googleUserEmail={userProfile.email}
+            onConnectGoogleDrive={handleGoogleSignIn}
+            onSyncGoogleDrive={handleSyncGoogleDrive}
           />
+        )}
+
+        {activeTab === 'storage_scanner' && (
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <DeviceStorageScanner
+              onImportToDrive={handleUploadFile}
+              onImportToVault={handleAddVaultFile}
+              onSelectPreviewFile={file => setPreviewFile(file)}
+            />
+          </React.Suspense>
         )}
 
         {activeTab === 'vault' && (
@@ -371,7 +679,9 @@ export default function App() {
           <React.Suspense fallback={<TabLoadingFallback />}>
             <SemanticSearch
               files={files}
+              folders={folders}
               onSelectFile={file => setPreviewFile(file)}
+              onMoveFile={file => setSearchMoveTargetFile(file)}
             />
           </React.Suspense>
         )}
@@ -418,6 +728,37 @@ export default function App() {
           />
         </React.Suspense>
       )}
+
+      {/* Semantic Search Direct Move Modal */}
+      {searchMoveTargetFile && (
+        <MoveToFolderModal
+          isOpen={Boolean(searchMoveTargetFile)}
+          onClose={() => setSearchMoveTargetFile(null)}
+          selectedFiles={[searchMoveTargetFile]}
+          folders={folders}
+          allFiles={files}
+          onConfirmMove={targetFolderId => {
+            handleMoveFilesToFolder([searchMoveTargetFile.id], targetFolderId);
+            setSearchMoveTargetFile(null);
+          }}
+          onCreateFolder={handleCreateFolder}
+        />
+      )}
+
+      {/* Global Drive Toast Notification */}
+      {driveNotification && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 shadow-2xl border border-zinc-700 dark:border-zinc-300 text-xs font-semibold animate-in slide-in-from-bottom duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
+          <span>{driveNotification}</span>
+          <button
+            type="button"
+            onClick={() => setDriveNotification(null)}
+            className="ml-2 text-zinc-400 hover:text-white dark:hover:text-black cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -432,6 +773,8 @@ export default function App() {
         showOverflowInspector={showOverflowInspector}
         showTouchTargetAudit={showTouchTargetAudit}
         activeViewMode={activeViewMode}
+        isReloading={isReloadingEmulator}
+        autoReload={autoReloadOnConfigChange}
         onSelectDevice={dev => setCurrentDevice(dev)}
         onToggleOrientation={handleRotateOrientation}
         onSetZoom={z => setZoomScale(z)}
@@ -439,6 +782,8 @@ export default function App() {
         onToggleOverflowInspector={() => setShowOverflowInspector(!showOverflowInspector)}
         onToggleTouchTargetAudit={() => setShowTouchTargetAudit(!showTouchTargetAudit)}
         onSelectViewMode={mode => setActiveViewMode(mode)}
+        onToggleAutoReload={() => setAutoReloadOnConfigChange(prev => !prev)}
+        onManualReload={handleReloadEmulator}
       />
 
       {/* View Content based on activeViewMode */}
@@ -457,7 +802,7 @@ export default function App() {
         /* Device Emulator Workspace with Realistic Frame */
         <div className="flex-1 bg-zinc-900/90 flex flex-col items-center justify-start p-4 sm:p-8 overflow-auto">
           {/* Device Dimension & Orientation Header Bar */}
-          <div className="mb-4 flex items-center gap-3 px-4 py-2 rounded-2xl bg-zinc-950/80 border border-zinc-800 text-xs font-mono shadow-md backdrop-blur-xs">
+          <div className="mb-4 flex flex-wrap items-center justify-center gap-2.5 px-4 py-2 rounded-2xl bg-zinc-950/80 border border-zinc-800 text-xs font-mono shadow-md backdrop-blur-xs">
             <span className="font-bold text-zinc-200">{currentDevice.name}</span>
             <span className="text-zinc-600">•</span>
             <span className="text-blue-400 capitalize">{orientation}</span>
@@ -467,6 +812,18 @@ export default function App() {
             <span className="text-emerald-400 font-semibold">{dpr}x DPR</span>
             <span className="text-zinc-600">•</span>
             <span className="text-zinc-400">{currentDevice.aspectRatio}</span>
+            <span className="text-zinc-600">•</span>
+            <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  autoReloadOnConfigChange ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'
+                }`}
+              />
+              <span>Auto-Reload: {autoReloadOnConfigChange ? 'Active' : 'Paused'}</span>
+              {lastReloadTimestamp && (
+                <span className="text-zinc-500 text-[10px]">({lastReloadTimestamp})</span>
+              )}
+            </div>
           </div>
 
           {/* Scaled Device Frame Container */}
@@ -493,9 +850,32 @@ export default function App() {
                 </div>
               )}
 
-              {/* Internal Device Screen: Scrollable */}
+              {/* Reloading Overlay with Style Recalculation Indicator */}
+              {isReloadingEmulator && (
+                <div
+                  id="emulator-reloading-overlay"
+                  className="absolute inset-0 z-50 bg-zinc-950/80 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-150 pointer-events-none"
+                >
+                  <div className="p-3 rounded-2xl bg-blue-500/15 border border-blue-500/30 text-blue-400 mb-3 shadow-xl">
+                    <RotateCw className="w-6 h-6 animate-spin" />
+                  </div>
+                  <p className="text-sm font-bold text-zinc-100 tracking-tight">Auto-Reloading Viewport</p>
+                  <p className="text-xs text-zinc-400 mt-1 max-w-xs">
+                    Recalculating styles & layout for {currentDevice.name} ({orientation})
+                  </p>
+                  <div className="mt-3 flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[11px] font-mono text-zinc-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{targetWidth} × {targetHeight} CSS px</span>
+                    <span className="text-zinc-600">•</span>
+                    <span className="text-emerald-400 font-semibold">Styles Recalculated</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Internal Device Screen: Scrollable & Remounted on reload key */}
               <div
                 id="device-screen-scroll-container"
+                key={`emulator-screen-${currentDevice.id}-${orientation}-${emulatorReloadKey}`}
                 className="w-full h-full overflow-y-auto overflow-x-hidden bg-zinc-50 dark:bg-zinc-950 scroll-smooth"
               >
                 {renderAppContent()}
@@ -504,6 +884,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Global PWA Offline Connectivity Banner */}
+      <OfflineIndicator />
     </div>
   );
 }

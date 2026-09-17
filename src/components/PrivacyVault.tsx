@@ -17,7 +17,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { VaultFile } from '../types';
-import { encryptData, decryptData } from '../lib/cryptoVault';
+import { encryptDataWithWorker, decryptDataWithWorker } from '../lib/cryptoVault';
 import { formatBytes } from '../lib/driveApi';
 
 interface PrivacyVaultProps {
@@ -78,7 +78,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
 
     setEncrypting(true);
     try {
-      const { ciphertext, iv, salt } = await encryptData(newFileContent, passphrase);
+      const { ciphertext, iv, salt } = await encryptDataWithWorker(newFileContent, passphrase);
 
       const newVaultItem: VaultFile = {
         id: `vault-${Date.now()}`,
@@ -91,7 +91,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
         salt,
         uploadedAt: new Date().toISOString(),
         tags: newFileTags.split(',').map(t => t.trim()).filter(Boolean),
-        notes: 'AES-256-GCM zero-knowledge client encrypted',
+        notes: 'AES-256-GCM zero-knowledge client encrypted via Web Worker',
       };
 
       onAddVaultFile(newVaultItem);
@@ -108,7 +108,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
   const handleDecryptView = async (file: VaultFile) => {
     setDecryptingId(file.id);
     try {
-      const plainText = await decryptData(file.encryptedData, file.iv, file.salt, passphrase);
+      const plainText = await decryptDataWithWorker(file.encryptedData, file.iv, file.salt, passphrase);
       setPreviewFile({
         name: file.originalName,
         content: plainText,
@@ -130,14 +130,18 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg sm:text-xl font-bold tracking-tight">Zero-Knowledge Privacy Vault</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide bg-amber-500/20 text-amber-300 border border-amber-500/30">
                   AES-256-GCM
                 </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Web Worker Thread
+                </span>
               </div>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-                Encrypted exclusively in your browser memory before sync. Not even cloud providers or server hosts can view plain contents.
+                Encrypted in a background Web Worker before sync. Zero UI blocking during 100,000 PBKDF2 iterations.
               </p>
             </div>
           </div>

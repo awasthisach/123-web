@@ -106,3 +106,85 @@ export async function computeHash(content: string): Promise<string> {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+// Dedicated Web Worker Singleton with automatic fallback to Web Crypto API
+let cryptoWorker: Worker | null = null;
+const pendingWorkerTasks = new Map<
+  string,
+  { resolve: (val: any) => void; reject: (err: any) => void }
+>();
+
+function getCryptoWorker(): Worker | null {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+    return null;
+  }
+  if (!cryptoWorker) {
+    try {
+      cryptoWorker = new Worker(new URL('./cryptoWorker.ts', import.meta.url), {
+        type: 'module',
+      });
+      cryptoWorker.onmessage = (e: MessageEvent) => {
+        const { id, success, result, error } = e.data;
+        const task = pendingWorkerTasks.get(id);
+        if (task) {
+          pendingWorkerTasks.delete(id);
+          if (success) {
+            task.resolve(result);
+          } else {
+            task.reject(new Error(error));
+          }
+        }
+      };
+      cryptoWorker.onerror = (err) => {
+        console.warn('Crypto worker encountered an error, falling back to main thread:', err);
+      };
+    } catch (e) {
+      console.warn('Unable to spawn Crypto Worker, using main thread fallback:', e);
+      cryptoWorker = null;
+    }
+  }
+  return cryptoWorker;
+}
+
+export async function encryptDataWithWorker(
+  plainText: string,
+  passphrase: string
+): Promise<{ ciphertext: string; iv: string; salt: string }> {
+  const worker = getCryptoWorker();
+  if (!worker) {
+    return encryptData(plainText, passphrase);
+  }
+
+  return new Promise((resolve, reject) => {
+    const id = `enc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    pendingWorkerTasks.set(id, { resolve, reject });
+    worker.postMessage({
+      id,
+      type: 'encrypt',
+      payload: { plainText, passphrase },
+    });
+  });
+}
+
+export async function decryptDataWithWorker(
+  ciphertext: string,
+  iv: string,
+  salt: string,
+  passphrase: string
+): Promise<string> {
+  const worker = getCryptoWorker();
+  if (!worker) {
+    return decryptData(ciphertext, iv, salt, passphrase);
+  }
+
+  return new Promise((resolve, reject) => {
+    const id = `dec-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    pendingWorkerTasks.set(id, { resolve, reject });
+    worker.postMessage({
+      id,
+      type: 'decrypt',
+      payload: { ciphertext, iv, salt, passphrase },
+    });
+  });
+}
+

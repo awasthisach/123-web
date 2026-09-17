@@ -1,6 +1,14 @@
 export type FileCategory = 'document' | 'image' | 'spreadsheet' | 'code' | 'archive' | 'audio' | 'video' | 'other';
 export type DriveSyncStatus = 'synced' | 'syncing' | 'pending' | 'offline_only' | 'error';
 
+export interface FolderItem {
+  id: string;
+  name: string;
+  color: string;
+  description?: string;
+  createdAt?: string;
+}
+
 export interface DriveFile {
   id: string;
   name: string;
@@ -9,7 +17,12 @@ export interface DriveFile {
   modifiedTime: string;
   createdTime: string;
   category: FileCategory;
+  folderId?: string; // Target folder identifier
   thumbnailUrl?: string;
+  webViewLink?: string;
+  iconLink?: string;
+  parentIds?: string[];
+  isGoogleDriveItem?: boolean;
   isOffline: boolean;
   isEncrypted: boolean;
   contentHash: string;
@@ -82,4 +95,33 @@ export interface LayoutGlitchItem {
   rootCause: string;
   fixApplied: string;
   status: 'fixed' | 'verified';
+}
+
+export type StorageSource = 'phone_internal' | 'sd_card';
+
+export interface DeviceStorageFile {
+  id: string;
+  name: string;
+  path: string;
+  source: StorageSource; // 'phone_internal' (फ़ोन मेमोरी) | 'sd_card' (SD कार्ड)
+  size: number;
+  mimeType: string;
+  category: FileCategory;
+  lastModified: string;
+  isLargeFile?: boolean;
+  isDuplicate?: boolean;
+  duplicateGroupHash?: string;
+  isCacheOrJunk?: boolean;
+  thumbnailUrl?: string;
+  rawFileRef?: File;
+}
+
+export interface StorageDeviceStats {
+  source: StorageSource;
+  label: string;
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  fileCount: number;
+  health: 'healthy' | 'warning' | 'critical';
 }
