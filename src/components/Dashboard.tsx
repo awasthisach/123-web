@@ -55,6 +55,7 @@ interface DashboardProps {
   isGoogleLoading?: boolean;
   googleUserEmail?: string;
   onConnectGoogleDrive?: () => void;
+  onConnectDemoDrive?: () => void;
   onSyncGoogleDrive?: () => void;
 }
 
@@ -84,6 +85,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   isGoogleLoading = false,
   googleUserEmail = '',
   onConnectGoogleDrive,
+  onConnectDemoDrive,
   onSyncGoogleDrive,
 }) => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -403,17 +405,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </p>
             </div>
           </div>
-          {onConnectGoogleDrive && (
-            <button
-              type="button"
-              onClick={onConnectGoogleDrive}
-              disabled={isGoogleLoading}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm hover:shadow transition cursor-pointer shrink-0 min-h-[40px] disabled:opacity-60"
-            >
-              <Cloud className="w-4 h-4" />
-              <span>Sign in with Google</span>
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onConnectGoogleDrive && (
+              <button
+                id="dashboard-signin-google-btn"
+                type="button"
+                onClick={onConnectGoogleDrive}
+                disabled={isGoogleLoading}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm hover:shadow transition cursor-pointer min-h-[40px] disabled:opacity-60"
+              >
+                {isGoogleLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Cloud className="w-4 h-4" />
+                )}
+                <span>{isGoogleLoading ? 'Connecting...' : 'Sign in with Google'}</span>
+              </button>
+            )}
+
+            {onConnectDemoDrive && (
+              <button
+                id="dashboard-connect-demo-btn"
+                type="button"
+                onClick={onConnectDemoDrive}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 text-xs font-semibold shadow-xs transition cursor-pointer min-h-[40px]"
+                title="Google Cloud सेटअप के बिना सीधे परीक्षण करें"
+              >
+                <span>डेमो ड्राइव (Demo Drive)</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 

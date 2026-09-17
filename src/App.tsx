@@ -35,6 +35,7 @@ import { EmulatorToolbar } from './components/EmulatorToolbar';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { MoveToFolderModal } from './components/MoveToFolderModal';
+import { AuthErrorModal } from './components/AuthErrorModal';
 import { initAuth, googleSignIn, googleSignOut, getAccessToken } from './lib/firebaseAuth';
 import {
   fetchGoogleDriveData,
@@ -90,6 +91,8 @@ export default function App() {
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [searchMoveTargetFile, setSearchMoveTargetFile] = useState<DriveFile | null>(null);
   const [driveNotification, setDriveNotification] = useState<string | null>(null);
+  const [authErrorModalOpen, setAuthErrorModalOpen] = useState<boolean>(false);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string>('');
 
   const showDriveToast = (msg: string) => {
     setDriveNotification(msg);
@@ -100,7 +103,12 @@ export default function App() {
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'storage_scanner' | 'vault' | 'duplicates' | 'search' | 'offline'>('dashboard');
-  const [activeViewMode, setActiveViewMode] = useState<'emulator' | 'native' | 'audit_report'>('emulator');
+  const [activeViewMode, setActiveViewMode] = useState<'emulator' | 'native' | 'audit_report'>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 'native';
+    }
+    return 'emulator';
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Device Emulator State
@@ -269,6 +277,25 @@ export default function App() {
     }, 1200);
   };
 
+  const handleConnectDemoDrive = () => {
+    setIsGoogleConnected(true);
+    setUserProfile({
+      name: 'Awasthi Sach (Demo Drive)',
+      email: 'awasthi.sach@gmail.com',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      isConnected: true,
+    });
+    setFiles(INITIAL_FILES);
+    setFolders(INITIAL_FOLDERS);
+    setSyncStats(s => ({
+      ...s,
+      status: 'synced',
+      totalSyncedCount: INITIAL_FILES.length,
+      lastSynced: new Date().toISOString(),
+    }));
+    showDriveToast('डेमो गूगल ड्राइव कनेक्ट हो गया! (Demo Google Drive Connected)');
+  };
+
   const handleGoogleSignIn = async () => {
     try {
       setIsGoogleLoading(true);
@@ -283,32 +310,54 @@ export default function App() {
           isConnected: true,
         });
 
-        const driveData = await fetchGoogleDriveData(result.accessToken);
-        setFiles(prev => {
-          const driveIds = new Set(driveData.files.map(f => f.id));
-          const remaining = prev.filter(f => !driveIds.has(f.id) && !f.isGoogleDriveItem);
-          return [...driveData.files, ...remaining];
-        });
-        setFolders(prev => {
-          const driveFolderIds = new Set(driveData.folders.map(fd => fd.id));
-          const remaining = prev.filter(fd => !driveFolderIds.has(fd.id));
-          return [...driveData.folders, ...remaining];
-        });
-
-        setSyncStats(s => ({
-          ...s,
-          status: 'synced',
-          totalSyncedCount: driveData.files.length,
-          lastSynced: new Date().toISOString(),
-        }));
-
-        showDriveToast(
-          `Google Drive connected! ${driveData.files.length} files & ${driveData.folders.length} folders loaded.`
-        );
+        try {
+          const driveData = await fetchGoogleDriveData(result.accessToken);
+          if (driveData.files.length > 0 || driveData.folders.length > 0) {
+            setFiles(prev => {
+              const driveIds = new Set(driveData.files.map(f => f.id));
+              const remaining = prev.filter(f => !driveIds.has(f.id) && !f.isGoogleDriveItem);
+              return [...driveData.files, ...remaining];
+            });
+            setFolders(prev => {
+              const driveFolderIds = new Set(driveData.folders.map(fd => fd.id));
+              const remaining = prev.filter(fd => !driveFolderIds.has(fd.id));
+              return [...driveData.folders, ...remaining];
+            });
+            setSyncStats(s => ({
+              ...s,
+              status: 'synced',
+              totalSyncedCount: driveData.files.length,
+              lastSynced: new Date().toISOString(),
+            }));
+            showDriveToast(
+              `Google Drive connected! ${driveData.files.length} files & ${driveData.folders.length} folders loaded.`
+            );
+          } else {
+            showDriveToast('Google Drive connected! (No files found in root)');
+          }
+        } catch (fetchErr: any) {
+          console.warn('Drive data fetch warning:', fetchErr);
+          showDriveToast('Google Drive connected!');
+        }
+      } else {
+        // User closed or dismissed the popup window
+        showDriveToast('Google Sign-In विंडो बंद कर दी गई। आप पुनः प्रयास कर सकते हैं या डेमो ड्राइव चुन सकते हैं।');
       }
     } catch (err: any) {
-      console.error('Google Sign-In failed:', err);
-      showDriveToast(`Sign-in failed: ${err.message || 'Unable to connect to Google Drive'}`);
+      const message = err?.message || 'Unable to connect to Google Drive';
+      const isUserCancel =
+        message.includes('popup-closed-by-user') ||
+        message.includes('cancelled-popup-request') ||
+        err?.code === 'auth/popup-closed-by-user';
+
+      if (isUserCancel) {
+        showDriveToast('Google Sign-In विंडो बंद कर दी गई। आप पुनः प्रयास कर सकते हैं या डेमो ड्राइव चुन सकते हैं।');
+      } else {
+        console.warn('Google Sign-In notice:', message);
+        setAuthErrorMessage(message);
+        setAuthErrorModalOpen(true);
+        showDriveToast(`Sign-in status: ${message}`);
+      }
     } finally {
       setIsGoogleLoading(false);
     }
@@ -642,6 +691,7 @@ export default function App() {
             isGoogleLoading={isGoogleLoading}
             googleUserEmail={userProfile.email}
             onConnectGoogleDrive={handleGoogleSignIn}
+            onConnectDemoDrive={handleConnectDemoDrive}
             onSyncGoogleDrive={handleSyncGoogleDrive}
           />
         )}
@@ -745,20 +795,7 @@ export default function App() {
         />
       )}
 
-      {/* Global Drive Toast Notification */}
-      {driveNotification && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 shadow-2xl border border-zinc-700 dark:border-zinc-300 text-xs font-semibold animate-in slide-in-from-bottom duration-200">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
-          <span>{driveNotification}</span>
-          <button
-            type="button"
-            onClick={() => setDriveNotification(null)}
-            className="ml-2 text-zinc-400 hover:text-white dark:hover:text-black cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      {/* Main App Content Container */}
     </div>
   );
 
@@ -887,6 +924,34 @@ export default function App() {
 
       {/* Global PWA Offline Connectivity Banner */}
       <OfflineIndicator />
+
+      {/* Global Auth Error & Domain Resolution Guidance Modal */}
+      <AuthErrorModal
+        isOpen={authErrorModalOpen}
+        onClose={() => setAuthErrorModalOpen(false)}
+        errorMessage={authErrorMessage}
+        onConnectDemoDrive={handleConnectDemoDrive}
+        onRetrySignIn={handleGoogleSignIn}
+        isLoading={isGoogleLoading}
+      />
+
+      {/* Global Drive Toast Notification (Visible above all device emulator frames) */}
+      {driveNotification && (
+        <div
+          id="global-drive-toast"
+          className="fixed bottom-6 right-6 z-[99999] flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 shadow-2xl border border-zinc-700 dark:border-zinc-300 text-xs font-semibold animate-in slide-in-from-bottom duration-200"
+        >
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
+          <span>{driveNotification}</span>
+          <button
+            type="button"
+            onClick={() => setDriveNotification(null)}
+            className="ml-2 text-zinc-400 hover:text-white dark:hover:text-black cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
