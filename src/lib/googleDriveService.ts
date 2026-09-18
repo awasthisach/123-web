@@ -8,12 +8,44 @@ export interface DriveFetchResult {
   folders: FolderItem[];
 }
 
+export type DriveFileTypeFilter = 'all' | 'documents' | 'images' | 'videos' | 'spreadsheets' | 'pdfs' | 'folders';
+
+/**
+ * Build Google Drive query based on file type filter
+ */
+function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
+  const base = 'trashed=false';
+
+  switch (fileType) {
+    case 'documents':
+      return `${base} and (mimeType='application/pdf' or mimeType='application/msword' or mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or mimeType='application/vnd.google-apps.document' or mimeType='text/plain' or mimeType='application/rtf')`;
+    case 'pdfs':
+      return `${base} and mimeType='application/pdf'`;
+    case 'images':
+      return `${base} and (mimeType contains 'image/' or mimeType='application/vnd.google-apps.photo')`;
+    case 'videos':
+      return `${base} and (mimeType contains 'video/' or mimeType='application/vnd.google-apps.video')`;
+    case 'spreadsheets':
+      return `${base} and (mimeType='application/vnd.ms-excel' or mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.google-apps.spreadsheet' or mimeType='text/csv')`;
+    case 'folders':
+      return `${base} and mimeType='application/vnd.google-apps.folder'`;
+    case 'all':
+    default:
+      return base;
+  }
+}
+
 /**
  * Fetch files and folders from Google Drive API v3
+ * Supports up to 500 files per request and optional file type filtering
  */
-export async function fetchGoogleDriveData(accessToken: string): Promise<DriveFetchResult> {
-  const fields = 'files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink,webViewLink,iconLink,parents,trashed,description,starred)';
-  const url = `https://www.googleapis.com/drive/v3/files?pageSize=100&fields=${encodeURIComponent(fields)}&q=${encodeURIComponent('trashed=false')}&orderBy=modifiedTime desc`;
+export async function fetchGoogleDriveData(
+  accessToken: string,
+  fileType: DriveFileTypeFilter = 'all'
+): Promise<DriveFetchResult> {
+  const fields = 'files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink,webViewLink,iconLink,parents,trashed,description,starred),nextPageToken';
+  const query = buildDriveQuery(fileType);
+  const url = `https://www.googleapis.com/drive/v3/files?pageSize=500&fields=${encodeURIComponent(fields)}&q=${encodeURIComponent(query)}&orderBy=modifiedTime desc`;
 
   const response = await fetch(url, {
     method: 'GET',
