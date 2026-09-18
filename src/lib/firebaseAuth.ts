@@ -31,9 +31,21 @@ provider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// Cache the access token purely in memory (never localStorage)
-let cachedAccessToken: string | null = null;
+// Cache access token in memory + sessionStorage (survives page refresh in same tab)
+const TOKEN_KEY = 'gdrive_access_token';
+let cachedAccessToken: string | null = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(TOKEN_KEY) : null);
 let isSigningIn = false;
+
+function persistToken(token: string | null) {
+  cachedAccessToken = token;
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore quota / private mode errors
+  }
+}
 
 /**
  * Request OAuth Access Token using Google Identity Services (GSI)
@@ -119,8 +131,8 @@ export const initAuth = (
       if (result) {
         const credential = GoogleAuthProvider.credentialFromResult(result);
         if (credential?.accessToken) {
-          cachedAccessToken = credential.accessToken;
-          if (onAuthSuccess) onAuthSuccess(result.user, cachedAccessToken);
+          persistToken(credential.accessToken);
+          if (onAuthSuccess) onAuthSuccess(result.user, cachedAccessToken!);
         }
       }
     })
@@ -136,7 +148,7 @@ export const initAuth = (
         if (onAuthFailure) onAuthFailure();
       }
     } else {
-      cachedAccessToken = null;
+      persistToken(null);
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -183,7 +195,7 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
   if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && firebaseConfig.oAuthClientId) {
     try {
       const gsiResult = await requestGsiToken(firebaseConfig.oAuthClientId);
-      cachedAccessToken = gsiResult.accessToken;
+      persistToken(gsiResult.accessToken);
       return gsiResult;
     } catch (gsiErr: any) {
       const isCancelled =
@@ -207,8 +219,8 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
     if (!credential?.accessToken) {
       throw new Error('Could not obtain OAuth access token for Google Drive');
     }
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
+    persistToken(credential.accessToken);
+    return { user: result.user, accessToken: cachedAccessToken! };
   } catch (error: any) {
     const isPopupError =
       error?.code === 'auth/popup-closed-by-user' ||
@@ -245,7 +257,7 @@ export const getAccessToken = async (): Promise<string | null> => {
  * Set token manually (e.g. after successful signIn)
  */
 export const setCachedAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
+  persistToken(token);
 };
 
 /**
@@ -257,5 +269,5 @@ export const googleSignOut = async () => {
   } catch {
     // ignore
   }
-  cachedAccessToken = null;
+  persistToken(null);
 };
