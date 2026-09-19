@@ -77,7 +77,7 @@ export default function App() {
 
   const showDriveToast = (msg: string) => {
     setDriveNotification(msg);
-    setTimeout(() => setDriveNotification(null), 4500);
+    setTimeout(() => setDriveNotification(null), 5000);
   };
 
   useEffect(() => {
@@ -174,8 +174,8 @@ export default function App() {
           } else {
             showDriveToast('Google Drive connected! (No files found)');
           }
-        } catch {
-          showDriveToast('Google Drive connected!');
+        } catch (e: any) {
+          showDriveToast(`Connected but sync issue: ${e?.message || 'retry Sync Now'}`);
         }
       } else {
         showDriveToast('Google Sign-In cancelled.');
@@ -184,11 +184,9 @@ export default function App() {
       const message = err?.message || 'Unable to connect to Google Drive';
       if (message.includes('popup-closed') || message.includes('cancelled')) {
         showDriveToast('Sign-In cancelled.');
-        setIsGoogleLoading(false);
       } else {
         setAuthErrorMessage(message);
         setAuthErrorModalOpen(true);
-        setIsGoogleLoading(false);
       }
     } finally {
       setIsGoogleLoading(false);
@@ -236,9 +234,22 @@ export default function App() {
         totalSyncedCount: driveData.files.length,
         lastSynced: new Date().toISOString(),
       }));
-      showDriveToast(`Google Drive synced (${typeToUse}): ${driveData.files.length} files loaded!`);
+      showDriveToast(`Synced (${typeToUse}): ${driveData.files.length} files loaded!`);
     } catch (err: any) {
-      showDriveToast(`Sync failed: ${err.message || 'Error'}`);
+      const msg = err?.message || 'Error';
+      console.error('Sync failed:', msg);
+      if (
+        String(msg).includes('401') ||
+        String(msg).toLowerCase().includes('invalid') ||
+        String(msg).toLowerCase().includes('auth') ||
+        String(msg).toLowerCase().includes('login')
+      ) {
+        showDriveToast('Session expired — Sign in again');
+        setGoogleAccessToken(null);
+        setIsGoogleConnected(false);
+      } else {
+        showDriveToast(`Sync failed: ${msg}`);
+      }
     } finally {
       setIsGoogleLoading(false);
     }
