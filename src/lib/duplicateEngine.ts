@@ -1,13 +1,21 @@
 import { DriveFile, DuplicateGroup } from '../types';
 
+/**
+ * Groups likely duplicates.
+ * Primary key: contentHash when present (sha256:… preferred).
+ * Fallback: same size + normalized name.
+ */
 export function findDuplicates(files: DriveFile[]): DuplicateGroup[] {
   const hashMap = new Map<string, DriveFile[]>();
 
   files.forEach(file => {
-    if (!file.contentHash) return;
-    const existing = hashMap.get(file.contentHash) || [];
+    let key = file.contentHash;
+    if (!key || key.startsWith('gdrive-') || key.startsWith('user-')) {
+      key = `size:${file.size}|name:${(file.name || '').toLowerCase()}`;
+    }
+    const existing = hashMap.get(key) || [];
     existing.push(file);
-    hashMap.set(file.contentHash, existing);
+    hashMap.set(key, existing);
   });
 
   const duplicateGroups: DuplicateGroup[] = [];
@@ -15,10 +23,9 @@ export function findDuplicates(files: DriveFile[]): DuplicateGroup[] {
   hashMap.forEach((groupFiles, hash) => {
     if (groupFiles.length > 1) {
       const singleSize = groupFiles[0].size;
-      const totalSize = singleSize * groupFiles.length;
-      const reclaimableSize = singleSize * (groupFiles.length - 1);
+      const totalSize = groupFiles.reduce((s, f) => s + f.size, 0);
+      const reclaimableSize = totalSize - singleSize;
 
-      // Sort files by modifiedTime ascending (oldest first)
       const sorted = [...groupFiles].sort(
         (a, b) => new Date(a.modifiedTime).getTime() - new Date(b.modifiedTime).getTime()
       );
@@ -33,5 +40,10 @@ export function findDuplicates(files: DriveFile[]): DuplicateGroup[] {
     }
   });
 
-  return duplicateGroups;
+  return duplicateGroups.sort((a, b) => {
+    const aConf = a.hash.startsWith('sha256:') ? 0 : 1;
+    const bConf = b.hash.startsWith('sha256:') ? 0 : 1;
+    if (aConf !== bConf) return aConf - bConf;
+    return b.reclaimableSize - a.reclaimableSize;
+  });
 }
