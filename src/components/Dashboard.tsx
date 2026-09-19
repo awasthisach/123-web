@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { DriveFile, FileCategory, VaultFile, FolderItem } from '../types';
 import { formatBytes } from '../lib/driveApi';
-import { DriveFileTypeFilter } from '../lib/googleDriveService';
+import { DriveFileTypeFilter, DriveCorpus, SharedDriveInfo } from '../lib/googleDriveService';
 import { FileTypeSelector } from './FileTypeSelector';
 import { MoveToFolderModal } from './MoveToFolderModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
@@ -33,6 +33,10 @@ interface DashboardProps {
   driveFileTypeFilter?: DriveFileTypeFilter;
   onDriveFileTypeChange?: (fileType: DriveFileTypeFilter) => void;
   driveTruncated?: boolean;
+  driveCorpus?: DriveCorpus;
+  sharedDriveId?: string;
+  sharedDrives?: SharedDriveInfo[];
+  onDriveCorpusChange?: (corpus: DriveCorpus, driveId?: string) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -41,6 +45,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectPreviewFile, isGoogleConnected = false, isGoogleLoading = false,
   googleUserEmail = '', onConnectGoogleDrive, onConnectDemoDrive, onSyncGoogleDrive,
   driveFileTypeFilter = 'all', onDriveFileTypeChange, driveTruncated = false,
+  driveCorpus = 'user', sharedDriveId = '', sharedDrives = [], onDriveCorpusChange,
 }) => {
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -152,6 +157,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {onDriveCorpusChange && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <label className="text-zinc-500 font-medium">Corpus</label>
+                <select
+                  value={driveCorpus === 'drive' ? 'drive:' + sharedDriveId : driveCorpus}
+                  disabled={isGoogleLoading}
+                  onChange={e => {
+                    const v = e.target.value;
+                    if (v === 'user' || v === 'allDrives') onDriveCorpusChange(v);
+                    else if (v.startsWith('drive:')) onDriveCorpusChange('drive', v.slice(6));
+                  }}
+                  className="px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-semibold min-h-[38px]"
+                >
+                  <option value="user">My Drive</option>
+                  <option value="allDrives">All drives</option>
+                  {sharedDrives.map(d => (
+                    <option key={d.id} value={'drive:' + d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {onDriveFileTypeChange && (
               <FileTypeSelector value={driveFileTypeFilter} onChange={onDriveFileTypeChange} disabled={isGoogleLoading} />
             )}
