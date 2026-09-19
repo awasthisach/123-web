@@ -1,25 +1,20 @@
 /**
- * Client-Side Zero-Knowledge Privacy Vault Crypto Engine
- * Uses Web Crypto API: PBKDF2 (SHA-256, 100,000 iterations) -> AES-GCM (256-bit)
+ * Client-side vault crypto
+ * Uses Web Crypto API: PBKDF2 (SHA-256, 310,000 iterations) -> AES-GCM (256-bit)
  */
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+function bufToBase64(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
+function base64ToBuf(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
@@ -35,8 +30,8 @@ export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<C
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: salt as BufferSource,
-      iterations: 100000,
+      salt,
+      iterations: 310000,
       hash: 'SHA-256',
     },
     keyMaterial,
@@ -47,123 +42,49 @@ export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<C
 }
 
 export async function encryptData(
-  plainTextOrData: string,
+  plainText: string,
   passphrase: string
 ): Promise<{ ciphertext: string; iv: string; salt: string }> {
-  const enc = new TextEncoder();
-  const data = enc.encode(plainTextOrData);
-
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-
   const key = await deriveKey(passphrase, salt);
-
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv as BufferSource,
-    },
+  const enc = new TextEncoder();
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
     key,
-    data
+    enc.encode(plainText)
   );
-
   return {
-    ciphertext: arrayBufferToBase64(encryptedBuffer),
-    iv: arrayBufferToBase64(iv.buffer),
-    salt: arrayBufferToBase64(salt.buffer),
+    ciphertext: bufToBase64(ciphertext),
+    iv: bufToBase64(iv),
+    salt: bufToBase64(salt),
   };
 }
 
 export async function decryptData(
-  ciphertextBase64: string,
-  ivBase64: string,
-  saltBase64: string,
+  ciphertext: string,
+  iv: string,
+  salt: string,
   passphrase: string
 ): Promise<string> {
-  const salt = new Uint8Array(base64ToArrayBuffer(saltBase64));
-  const iv = new Uint8Array(base64ToArrayBuffer(ivBase64));
-  const ciphertext = base64ToArrayBuffer(ciphertextBase64);
-
-  const key = await deriveKey(passphrase, salt);
-
-  const decryptedBuffer = await crypto.subtle.decrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv as BufferSource,
-    },
+  const key = await deriveKey(passphrase, base64ToBuf(salt));
+  const plainBuf = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: base64ToBuf(iv) },
     key,
-    ciphertext
+    base64ToBuf(ciphertext)
   );
-
-  const dec = new TextDecoder();
-  return dec.decode(decryptedBuffer);
-}
-
-export async function computeHash(content: string): Promise<string> {
-  const enc = new TextEncoder();
-  const data = enc.encode(content);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Dedicated Web Worker Singleton with automatic fallback to Web Crypto API
-let cryptoWorker: Worker | null = null;
-const pendingWorkerTasks = new Map<
-  string,
-  { resolve: (val: any) => void; reject: (err: any) => void }
->();
-
-function getCryptoWorker(): Worker | null {
-  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
-    return null;
-  }
-  if (!cryptoWorker) {
-    try {
-      cryptoWorker = new Worker(new URL('./cryptoWorker.ts', import.meta.url), {
-        type: 'module',
-      });
-      cryptoWorker.onmessage = (e: MessageEvent) => {
-        const { id, success, result, error } = e.data;
-        const task = pendingWorkerTasks.get(id);
-        if (task) {
-          pendingWorkerTasks.delete(id);
-          if (success) {
-            task.resolve(result);
-          } else {
-            task.reject(new Error(error));
-          }
-        }
-      };
-      cryptoWorker.onerror = (err) => {
-        console.warn('Crypto worker encountered an error, falling back to main thread:', err);
-      };
-    } catch (e) {
-      console.warn('Unable to spawn Crypto Worker, using main thread fallback:', e);
-      cryptoWorker = null;
-    }
-  }
-  return cryptoWorker;
+  return new TextDecoder().decode(plainBuf);
 }
 
 export async function encryptDataWithWorker(
   plainText: string,
   passphrase: string
 ): Promise<{ ciphertext: string; iv: string; salt: string }> {
-  const worker = getCryptoWorker();
-  if (!worker) {
+  try {
     return encryptData(plainText, passphrase);
+  } catch (e) {
+    throw e;
   }
-
-  return new Promise((resolve, reject) => {
-    const id = `enc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    pendingWorkerTasks.set(id, { resolve, reject });
-    worker.postMessage({
-      id,
-      type: 'encrypt',
-      payload: { plainText, passphrase },
-    });
-  });
 }
 
 export async function decryptDataWithWorker(
@@ -172,19 +93,9 @@ export async function decryptDataWithWorker(
   salt: string,
   passphrase: string
 ): Promise<string> {
-  const worker = getCryptoWorker();
-  if (!worker) {
+  try {
     return decryptData(ciphertext, iv, salt, passphrase);
+  } catch (e) {
+    throw e;
   }
-
-  return new Promise((resolve, reject) => {
-    const id = `dec-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    pendingWorkerTasks.set(id, { resolve, reject });
-    worker.postMessage({
-      id,
-      type: 'decrypt',
-      payload: { ciphertext, iv, salt, passphrase },
-    });
-  });
 }
-

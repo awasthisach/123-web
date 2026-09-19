@@ -10,9 +10,6 @@ export interface DriveFetchResult {
 
 export type DriveFileTypeFilter = 'all' | 'documents' | 'images' | 'videos' | 'spreadsheets' | 'pdfs' | 'folders';
 
-/**
- * Build Google Drive query based on file type filter
- */
 function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
   const base = 'trashed=false';
 
@@ -35,38 +32,50 @@ function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
   }
 }
 
-/**
- * Fetch files and folders from Google Drive API v3
- * Supports up to 500 files per request and optional file type filtering
- */
 export async function fetchGoogleDriveData(
   accessToken: string,
-  fileType: DriveFileTypeFilter = 'all'
+  fileType: DriveFileTypeFilter = 'all',
+  maxPages: number = 4
 ): Promise<DriveFetchResult> {
   const fields = 'files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink,webViewLink,iconLink,parents,trashed,description,starred),nextPageToken';
   const query = buildDriveQuery(fileType);
-  const url = `https://www.googleapis.com/drive/v3/files?pageSize=500&fields=${encodeURIComponent(fields)}&q=${encodeURIComponent(query)}&orderBy=${encodeURIComponent('modifiedTime desc')}`;
+  const rawItems: any[] = [];
+  let pageToken: string | undefined;
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-    },
-  });
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({
+      pageSize: '500',
+      fields,
+      q: query,
+      orderBy: 'modifiedTime desc',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    const message = errorData?.error?.message || `Google Drive API error: ${response.status} ${response.statusText}`;
-    throw new Error(message);
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const message = errorData?.error?.message || `Google Drive API error: ${response.status} ${response.statusText}`;
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    rawItems.push(...(data.files || []));
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
   }
-
-  const data = await response.json();
-  const rawItems: any[] = data.files || [];
 
   const folders: FolderItem[] = [];
   const files: DriveFile[] = [];
-
   let colorIdx = 0;
 
   for (const item of rawItems) {
@@ -110,9 +119,6 @@ export async function fetchGoogleDriveData(
   return { files, folders };
 }
 
-/**
- * Move a file in Google Drive to a new folder
- */
 export async function moveGoogleDriveFile(
   accessToken: string,
   fileId: string,
@@ -158,26 +164,21 @@ export async function moveGoogleDriveFile(
   }
 }
 
-/**
- * Create a folder in Google Drive
- */
 export async function createGoogleDriveFolder(
   accessToken: string,
   name: string
 ): Promise<{ id: string; name: string }> {
-  const response = await fetch('https://www.googleapis.com/drive/v3/files',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name,
-        mimeType: 'application/vnd.google-apps.folder',
-      }),
-    }
-  );
+  const response = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+    }),
+  });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -187,9 +188,6 @@ export async function createGoogleDriveFolder(
   return response.json();
 }
 
-/**
- * Delete a file from Google Drive
- */
 export async function deleteGoogleDriveFile(
   accessToken: string,
   fileId: string

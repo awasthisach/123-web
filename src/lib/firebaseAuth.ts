@@ -14,10 +14,9 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
+// drive = list + mutate. Avoid redundant overlapping scopes.
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.readonly',
 ];
 
 const provider = new GoogleAuthProvider();
@@ -94,7 +93,7 @@ export const requestGsiToken = async (clientId: string): Promise<{ user: Partial
           resolve({
             user: {
               displayName: 'Google Drive User',
-              email: 'awasthi.sach@gmail.com',
+              email: '',
               photoURL: '',
             } as any,
             accessToken,
@@ -102,7 +101,6 @@ export const requestGsiToken = async (clientId: string): Promise<{ user: Partial
         },
       });
 
-      // Empty prompt = reuse existing grant when possible (better on mobile)
       tokenClient.requestAccessToken({ prompt: '' });
     } catch (err: any) {
       reject(err);
