@@ -14,7 +14,15 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
   const duplicateGroups = findDuplicates(files);
   const totalReclaimable = duplicateGroups.reduce((acc, group) => acc + group.reclaimableSize, 0);
 
+  const confirmedIds = new Set(
+    duplicateGroups
+      .filter(g => g.hash.startsWith('sha256:'))
+      .flatMap(g => g.files.map(f => f.id))
+  );
+
   const toggleSelect = (id: string) => {
+    // Candidates (size/name only) cannot be selected for trash
+    if (!confirmedIds.has(id)) return;
     const next = new Set(selectedDuplicates);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -34,8 +42,10 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
   const handleDeselectAll = () => setSelectedDuplicates(new Set());
 
   const handleCleanSelected = () => {
-    if (selectedDuplicates.size === 0) return;
-    onRemoveFiles(Array.from(selectedDuplicates));
+    // Double-gate: only SHA-256 confirmed ids may be trashed from this UI
+    const safe = Array.from(selectedDuplicates).filter(id => confirmedIds.has(id));
+    if (safe.length === 0) return;
+    onRemoveFiles(safe);
     setSelectedDuplicates(new Set());
   };
 
@@ -55,14 +65,14 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-                Groups by SHA-256 when available, otherwise size + filename. Confirm before trash.
-                Bulk select only applies to SHA-256 confirmed groups.
+                Size+name groups are candidates only — trash is disabled until offline pin produces SHA-256 confirmation.
               </p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-[11px] text-zinc-400 uppercase tracking-wider font-semibold">Possible reclaim</p>
+            <p className="text-[11px] text-zinc-400 uppercase tracking-wider font-semibold">Candidate reclaim*</p>
             <p className="text-base sm:text-xl font-bold text-emerald-400 font-mono">{formatBytes(totalReclaimable)}</p>
+            <p className="text-[10px] text-zinc-500 mt-0.5">*Real only after SHA-256 confirm</p>
           </div>
         </div>
       </div>
@@ -105,20 +115,27 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
               >
                 <div className="px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2 text-xs">
                   <span className={`font-bold ${confirmed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {confirmed ? 'confirmed SHA-256' : 'candidate (size + name)'}
+                    {confirmed ? 'confirmed SHA-256' : 'candidate (size + name) — trash locked'}
                   </span>
                   <span className="text-zinc-500">{group.fileCount} files · reclaim ~{formatBytes(group.reclaimableSize)}</span>
                 </div>
                 <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {group.files.map((file, idx) => (
                     <li key={file.id} className="flex items-center gap-3 px-4 py-3">
-                      <button type="button" onClick={() => toggleSelect(file.id)} className="shrink-0">
-                        {selectedDuplicates.has(file.id) ? (
-                          <Check className="w-4 h-4 text-indigo-600" />
-                        ) : (
-                          <span className="w-4 h-4 inline-block rounded border border-zinc-300 dark:border-zinc-600" />
-                        )}
-                      </button>
+                      {confirmed ? (
+                        <button type="button" onClick={() => toggleSelect(file.id)} className="shrink-0" title="Select for trash">
+                          {selectedDuplicates.has(file.id) ? (
+                            <Check className="w-4 h-4 text-indigo-600" />
+                          ) : (
+                            <span className="w-4 h-4 inline-block rounded border border-zinc-300 dark:border-zinc-600" />
+                          )}
+                        </button>
+                      ) : (
+                        <span
+                          className="w-4 h-4 inline-block rounded border border-dashed border-zinc-300 dark:border-zinc-600 opacity-40 shrink-0"
+                          title="Verify offline (SHA-256) before trash"
+                        />
+                      )}
                       <FileText className="w-4 h-4 text-zinc-400 shrink-0" />
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold truncate">{file.name}</div>
