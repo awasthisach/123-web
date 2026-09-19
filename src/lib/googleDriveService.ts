@@ -48,6 +48,8 @@ export async function fetchGoogleDriveData(
       fields,
       q: query,
       orderBy: 'modifiedTime desc',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
     });
     if (pageToken) params.set('pageToken', pageToken);
 
@@ -129,7 +131,7 @@ export async function moveGoogleDriveFile(
 
   if (!previousParents) {
     const metaRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`,
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents&supportsAllDrives=true`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     if (metaRes.ok) {
@@ -146,6 +148,7 @@ export async function moveGoogleDriveFile(
     params.set('removeParents', previousParents);
   }
   params.set('fields', 'id,parents');
+  params.set('supportsAllDrives', 'true');
 
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?${params.toString()}`,
@@ -168,7 +171,7 @@ export async function createGoogleDriveFolder(
   accessToken: string,
   name: string
 ): Promise<{ id: string; name: string }> {
-  const response = await fetch('https://www.googleapis.com/drive/v3/files', {
+  const response = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -188,19 +191,25 @@ export async function createGoogleDriveFolder(
   return response.json();
 }
 
+/** Move file to Google Drive trash (recoverable). Not permanent delete. */
 export async function deleteGoogleDriveFile(
   accessToken: string,
   fileId: string
 ): Promise<void> {
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ trashed: true }),
+    }
+  );
 
-  if (!response.ok && response.status !== 204) {
+  if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData?.error?.message || `Failed to delete file: ${response.status}`);
+    throw new Error(errorData?.error?.message || `Failed to trash file: ${response.status}`);
   }
 }
