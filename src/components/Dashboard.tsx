@@ -15,6 +15,7 @@ interface DashboardProps {
   folders: FolderItem[];
   vaultFiles: VaultFile[];
   onUploadFile: (newFile: DriveFile) => void;
+  onUploadToDrive?: (file: File) => Promise<void>;
   onDeleteFile: (id: string) => void;
   onDeleteMultipleFiles: (ids: string[]) => void;
   onMoveFilesToFolder: (fileIds: string[], targetFolderId: string | undefined) => void;
@@ -34,7 +35,7 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
-  files, folders, vaultFiles, onUploadFile, onDeleteFile, onDeleteMultipleFiles,
+  files, folders, vaultFiles, onUploadFile, onUploadToDrive, onDeleteFile, onDeleteMultipleFiles,
   onMoveFilesToFolder, onCreateFolder, onToggleStar, onToggleOffline, onSelectTab,
   onSelectPreviewFile, isGoogleConnected = false, isGoogleLoading = false,
   googleUserEmail = '', onConnectGoogleDrive, onConnectDemoDrive, onSyncGoogleDrive,
@@ -75,15 +76,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const selectedFilesList = useMemo(() => files.filter(f => selectedFileIds.has(f.id)), [files, selectedFileIds]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploaded = e.target.files?.[0];
     if (!uploaded) return;
+    e.target.value = '';
+
+    if (isGoogleConnected && onUploadToDrive) {
+      showToast('Uploading "' + uploaded.name + '" to Google Drive...');
+      try {
+        await onUploadToDrive(uploaded);
+      } catch (err: any) {
+        showToast('Upload failed: ' + (err?.message || 'error'));
+      }
+      return;
+    }
+
     let cat: FileCategory = 'document';
     if (uploaded.type.startsWith('image/')) cat = 'image';
     else if (uploaded.type.includes('sheet') || uploaded.name.endsWith('.xlsx')) cat = 'spreadsheet';
     else if (uploaded.type.includes('zip')) cat = 'archive';
     onUploadFile({
-      id: `file-${Date.now()}`,
+      id: 'file-' + Date.now(),
       name: uploaded.name,
       mimeType: uploaded.type || 'application/octet-stream',
       size: uploaded.size || 1024000,
@@ -92,13 +105,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       category: cat,
       isOffline: true,
       isEncrypted: false,
-      contentHash: `user-${Date.now()}-${uploaded.size}`,
+      contentHash: 'user-' + Date.now() + '-' + uploaded.size,
       tags: ['upload', 'local', cat],
-      semanticSummary: `Local only (not on Google Drive): ${uploaded.name}`,
+      semanticSummary: 'Local only (not on Google Drive): ' + uploaded.name,
       starred: false,
     });
-    e.target.value = '';
-    showToast(`"${uploaded.name}" added locally (not uploaded to Google Drive)`);
+    showToast('"' + uploaded.name + '" added locally (not uploaded to Google Drive)');
   };
 
   const toggleSelect = (id: string) => {
@@ -150,7 +162,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="rounded-2xl p-4 bg-gradient-to-r from-blue-50/70 to-zinc-50 dark:from-blue-950/20 dark:to-zinc-900 border border-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h4 className="text-sm font-bold">Connect Google Drive</h4>
-            <p className="text-[11px] text-zinc-600 dark:text-zinc-400">Sign in to sync and search your Drive files.</p>
+            <p className="text-[11px] text-zinc-600 dark:text-zinc-400">Sign in to sync, search, and upload to Drive.</p>
           </div>
           <div className="flex gap-2">
             {onConnectGoogleDrive && (
@@ -187,7 +199,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </select>
         <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold cursor-pointer">
           <UploadCloud className="w-3.5 h-3.5" />
-          Upload
+          {isGoogleConnected ? 'Upload to Drive' : 'Upload'}
           <input type="file" className="hidden" onChange={handleFileUpload} />
         </label>
       </div>
