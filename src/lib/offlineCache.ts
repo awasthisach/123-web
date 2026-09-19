@@ -1,7 +1,7 @@
 /**
  * IndexedDB cache for offline-pinned file bytes.
  * Quota: max total bytes + max entries; LRU eviction by cachedAt.
- * Migrations are data-preserving (no wipe of existing blobs).
+ * Re-pin same id replaces size without double-counting entries.
  */
 
 const DB_NAME = 'drive-semantic-offline';
@@ -39,13 +39,12 @@ function openDb(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result);
     req.onupgradeneeded = () => {
       const db = req.result;
-      // Data-preserving: only create missing stores/indexes; never wipe blobs on upgrade
       if (!db.objectStoreNames.contains(STORE)) {
         const os = db.createObjectStore(STORE, { keyPath: 'id' });
         try {
           os.createIndex('cachedAt', 'cachedAt', { unique: false });
         } catch {
-          /* index may already exist on partial upgrades */
+          /* index may already exist */
         }
       }
       if (!db.objectStoreNames.contains(META_STORE)) {
@@ -64,16 +63,29 @@ async function getAllRows(db: IDBDatabase): Promise<any[]> {
   });
 }
 
-async function enforceQuota(db: IDBDatabase, incomingSize: number): Promise<string[]> {
+async function enforceQuota(
+  db: IDBDatabase,
+  incomingSize: number,
+  replaceId?: string
+): Promise<string[]> {
   const rows = await getAllRows(db);
-  let total = rows.reduce((s, r) => s + (r.size || 0), 0) + incomingSize;
-  let count = rows.length + 1;
+  const existing = replaceId ? rows.find((r: any) => r.id === replaceId) : undefined;
+  let total = rows.reduce((s, r) => s + (r.size || 0), 0);
+  let count = rows.length;
+  if (existing) {
+    total = total - (existing.size || 0) + incomingSize;
+  } else {
+    total = total + incomingSize;
+    count = count + 1;
+  }
   const evicted: string[] = [];
   if (total <= MAX_CACHE_BYTES && count <= MAX_CACHE_ENTRIES) return evicted;
 
-  const sorted = [...rows].sort(
-    (a, b) => new Date(a.cachedAt || 0).getTime() - new Date(b.cachedAt || 0).getTime()
-  );
+  const sorted = [...rows]
+    .filter((r: any) => r.id !== replaceId)
+    .sort(
+      (a, b) => new Date(a.cachedAt || 0).getTime() - new Date(b.cachedAt || 0).getTime()
+    );
 
   for (const row of sorted) {
     if (total <= MAX_CACHE_BYTES && count <= MAX_CACHE_ENTRIES) break;
@@ -124,7 +136,7 @@ export async function putOfflineBlob(
         ' MB)'
     );
   }
-  const evictedIds = await enforceQuota(db, size);
+  const evictedIds = await enforceQuota(db, size, id);
 
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
@@ -158,17 +170,13 @@ export async function getOfflineBlob(id: string): Promise<Blob | null> {
 }
 
 export async function removeOfflineBlob(id: string): Promise<void> {
-  try {
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).delete(id);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    // ignore
-  }
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Failed to remove offline blob'));
+  });
 }
 
 export async function clearOfflineCache(): Promise<void> {

@@ -6,35 +6,35 @@ export function runSemanticSearch(
   files: DriveFile[],
   filterCategory?: string
 ): SemanticSearchResult[] {
+  const filtered = files.filter(file => {
+    if (!filterCategory || filterCategory === 'all') return true;
+    if (filterCategory === 'google_drive') return Boolean(file.isGoogleDriveItem);
+    return file.category === filterCategory;
+  });
+
+  // Empty query = browse mode (no ranked relevance)
   if (!query.trim()) {
-    return files.map(file => ({
+    return filtered.map(file => ({
       file,
-      score: 100,
-      matchedSnippet: file.semanticSummary,
-      relevanceReason: 'Metadata index (no query)',
+      score: 0,
+      matchedSnippet: file.semanticSummary || file.name,
+      relevanceReason: 'Browse mode (no query)',
     }));
   }
 
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const results: SemanticSearchResult[] = [];
 
-  for (const file of files) {
-    if (filterCategory && filterCategory !== 'all') {
-      if (filterCategory === 'google_drive') {
-        if (!file.isGoogleDriveItem) continue;
-      } else if (file.category !== filterCategory) {
-        continue;
-      }
-    }
-
+  for (const file of filtered) {
     let score = 0;
     const reasons: string[] = [];
 
     const fileNameLower = file.name.toLowerCase();
     const summaryLower = (file.semanticSummary || '').toLowerCase();
     const tagsCombined = (file.tags || []).join(' ').toLowerCase();
+    const q = query.toLowerCase();
 
-    if (summaryLower.includes(query.toLowerCase()) || fileNameLower.includes(query.toLowerCase())) {
+    if (summaryLower.includes(q) || fileNameLower.includes(q)) {
       score += 45;
       reasons.push('Phrase match in name or metadata summary');
     }

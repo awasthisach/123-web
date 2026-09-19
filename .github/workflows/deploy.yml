@@ -28,7 +28,12 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          if [ -f package-lock.json ] && grep -q 'node_modules/' package-lock.json 2>/dev/null; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Typecheck
         run: npm run lint

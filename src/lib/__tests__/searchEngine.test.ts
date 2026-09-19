@@ -32,8 +32,10 @@ describe('runSemanticSearch', () => {
     expect(results.every(r => r.file.isGoogleDriveItem)).toBe(true);
   });
 
-  it('returns index when query empty', () => {
+  it('browse mode when query empty (score 0, not ranked relevance)', () => {
     const results = runSemanticSearch('', [base]);
     expect(results.length).toBe(1);
+    expect(results[0].score).toBe(0);
+    expect(results[0].relevanceReason).toMatch(/Browse/i);
   });
 });
