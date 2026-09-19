@@ -96,7 +96,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
           <h2 className="font-bold text-sm">Privacy Vault</h2>
         </div>
         <p className="text-xs text-zinc-500">
-          Choose your own passphrase (min 8 chars). Session-only notes for this prototype.
+          Choose your own passphrase (min 8 chars). Ciphertext is stored in IndexedDB on this device; the passphrase is never saved.
         </p>
         <form onSubmit={handleUnlock} className="space-y-3">
           <div className="relative">
