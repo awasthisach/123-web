@@ -1,10 +1,15 @@
 /**
  * IndexedDB cache for offline-pinned file bytes.
+ * Quota: max total bytes + max entries; LRU eviction by cachedAt.
  */
 
 const DB_NAME = 'drive-semantic-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'blobs';
+const META_STORE = 'meta';
+
+export const MAX_CACHE_BYTES = 200 * 1024 * 1024;
+export const MAX_CACHE_ENTRIES = 80;
 
 export interface OfflineBlobMeta {
   id: string;
@@ -13,6 +18,13 @@ export interface OfflineBlobMeta {
   size: number;
   cachedAt: string;
   sha256?: string;
+}
+
+export interface CacheStats {
+  entryCount: number;
+  totalBytes: number;
+  maxBytes: number;
+  maxEntries: number;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -24,13 +36,74 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onerror = () => reject(req.error || new Error('IDB open failed'));
     req.onsuccess = () => resolve(req.result);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const oldVersion = event.oldVersion;
+      if (oldVersion > 0 && oldVersion < DB_VERSION) {
+        if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
+        if (db.objectStoreNames.contains(META_STORE)) db.deleteObjectStore(META_STORE);
+      }
       if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: 'id' });
+        const os = db.createObjectStore(STORE, { keyPath: 'id' });
+        os.createIndex('cachedAt', 'cachedAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: 'key' });
       }
     };
   });
+}
+
+async function getAllRows(db: IDBDatabase): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function enforceQuota(db: IDBDatabase, incomingSize: number): Promise<void> {
+  const rows = await getAllRows(db);
+  let total = rows.reduce((s, r) => s + (r.size || 0), 0) + incomingSize;
+  let count = rows.length + 1;
+  if (total <= MAX_CACHE_BYTES && count <= MAX_CACHE_ENTRIES) return;
+
+  const sorted = [...rows].sort(
+    (a, b) => new Date(a.cachedAt || 0).getTime() - new Date(b.cachedAt || 0).getTime()
+  );
+
+  for (const row of sorted) {
+    if (total <= MAX_CACHE_BYTES && count <= MAX_CACHE_ENTRIES) break;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(row.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    total -= row.size || 0;
+    count -= 1;
+  }
+}
+
+export async function getCacheStats(): Promise<CacheStats> {
+  try {
+    const db = await openDb();
+    const rows = await getAllRows(db);
+    return {
+      entryCount: rows.length,
+      totalBytes: rows.reduce((s, r) => s + (r.size || 0), 0),
+      maxBytes: MAX_CACHE_BYTES,
+      maxEntries: MAX_CACHE_ENTRIES,
+    };
+  } catch {
+    return {
+      entryCount: 0,
+      totalBytes: 0,
+      maxBytes: MAX_CACHE_BYTES,
+      maxEntries: MAX_CACHE_ENTRIES,
+    };
+  }
 }
 
 export async function putOfflineBlob(
@@ -39,6 +112,16 @@ export async function putOfflineBlob(
   meta: { name: string; mimeType: string; size: number; sha256?: string }
 ): Promise<void> {
   const db = await openDb();
+  const size = meta.size || blob.size || 0;
+  if (size > MAX_CACHE_BYTES) {
+    throw new Error(
+      'File larger than offline cache quota (' +
+        Math.round(MAX_CACHE_BYTES / 1024 / 1024) +
+        ' MB)'
+    );
+  }
+  await enforceQuota(db, size);
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put({
@@ -46,7 +129,7 @@ export async function putOfflineBlob(
       blob,
       name: meta.name,
       mimeType: meta.mimeType,
-      size: meta.size,
+      size,
       sha256: meta.sha256,
       cachedAt: new Date().toISOString(),
     });
@@ -83,26 +166,28 @@ export async function removeOfflineBlob(id: string): Promise<void> {
   }
 }
 
+export async function clearOfflineCache(): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function listOfflineMeta(): Promise<OfflineBlobMeta[]> {
   try {
     const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).getAll();
-      req.onsuccess = () => {
-        resolve(
-          (req.result || []).map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            mimeType: r.mimeType,
-            size: r.size,
-            cachedAt: r.cachedAt,
-            sha256: r.sha256,
-          }))
-        );
-      };
-      req.onerror = () => reject(req.error);
-    });
+    const rows = await getAllRows(db);
+    return rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      mimeType: r.mimeType,
+      size: r.size,
+      cachedAt: r.cachedAt,
+      sha256: r.sha256,
+    }));
   } catch {
     return [];
   }
@@ -139,7 +224,6 @@ export function getNativeExportHint(mimeType: string): { exportMime: string; ext
   return NATIVE_EXPORT[mimeType] || null;
 }
 
-/** Binary via alt=media; Google Docs/Sheets/Slides via export. */
 export async function downloadDriveFileBytes(
   accessToken: string,
   fileId: string,
@@ -151,9 +235,7 @@ export async function downloadDriveFileBytes(
       `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(native.exportMime)}`,
       { headers: { Authorization: 'Bearer ' + accessToken } }
     );
-    if (!res.ok) {
-      throw new Error('Export failed: ' + res.status);
-    }
+    if (!res.ok) throw new Error('Export failed: ' + res.status);
     return { blob: await res.blob(), downloadName: native.ext };
   }
 
@@ -161,8 +243,6 @@ export async function downloadDriveFileBytes(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
     { headers: { Authorization: 'Bearer ' + accessToken } }
   );
-  if (!res.ok) {
-    throw new Error('Download failed: ' + res.status);
-  }
+  if (!res.ok) throw new Error('Download failed: ' + res.status);
   return { blob: await res.blob() };
 }
