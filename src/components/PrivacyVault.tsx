@@ -30,7 +30,8 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputPass || inputPass.length < 8) {
-      setErrorMsg('Passphrase must be at least 8 characters');\n      return;
+      setErrorMsg('Passphrase must be at least 8 characters');
+      return;
     }
     setPassphrase(inputPass);
     setIsUnlocked(true);
@@ -79,6 +80,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
     try {
       const plainText = await decryptDataWithWorker(file.encryptedData, file.iv, file.salt, passphrase);
       setPreviewFile({ name: file.originalName || file.name, content: plainText });
+      setErrorMsg('');
     } catch {
       setErrorMsg('Decrypt failed — wrong passphrase or corrupt data');
     } finally {
@@ -94,8 +96,8 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
           <h2 className="font-bold text-sm">Privacy Vault</h2>
         </div>
         <p className="text-xs text-zinc-500">
-          Choose your own passphrase (min 8 chars). It is never stored in the app source.
-          Vault items live only in this browser session unless you add persistence later.
+          Choose your own passphrase (min 8 chars). Nothing is hard-coded in the app.
+          Notes stay in this browser session only (no cloud vault sync yet).
         </p>
         <form onSubmit={handleUnlock} className="space-y-3">
           <div className="relative">
