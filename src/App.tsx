@@ -293,10 +293,9 @@ export default function App() {
     const typeToUse = fileType || driveFileTypeFilter;
     const corpus = corpusOverride ?? driveCorpus;
     const dId = driveIdOverride !== undefined ? driveIdOverride : sharedDriveId;
-    try {
-      setIsGoogleLoading(true);
-      if (fileType) setDriveFileTypeFilter(fileType);
-      const driveData = await fetchGoogleDriveData(token, typeToUse, 20, corpus, dId || undefined);
+
+    const runFetch = async (tok: string) => {
+      const driveData = await fetchGoogleDriveData(tok, typeToUse, 20, corpus, dId || undefined);
       setDriveTruncated(Boolean(driveData.truncated));
       setFiles(prev => {
         const driveIds = new Set(driveData.files.map(f => f.id));
@@ -311,14 +310,25 @@ export default function App() {
       setSyncStats(s => ({ ...s, status: 'synced', totalSyncedCount: driveData.files.length, lastSynced: new Date().toISOString() }));
       const truncMsg = driveData.truncated ? ' (list capped — more files on Drive)' : '';
       showDriveToast('Synced (' + typeToUse + '): ' + driveData.files.length + ' files' + truncMsg);
+    };
+
+    try {
+      setIsGoogleLoading(true);
+      if (fileType) setDriveFileTypeFilter(fileType);
+      await runFetch(token);
     } catch (err: any) {
       const msg = err?.message || 'Error';
       console.error('Sync failed:', msg);
       if (String(msg).includes('401') || /invalid|auth|login|unauth/i.test(String(msg))) {
         const refreshed = await ensureValidToken();
-        if (refreshed && refreshed !== token) {
+        if (refreshed) {
           setGoogleAccessToken(refreshed);
-          showDriveToast('Session refreshed — try Sync again');
+          try {
+            await runFetch(refreshed);
+            showDriveToast('Session refreshed — sync completed');
+          } catch (retryErr: any) {
+            showDriveToast('Sync failed after refresh: ' + (retryErr?.message || 'error'));
+          }
         } else {
           showDriveToast('Session expired — Sign in again');
           setGoogleAccessToken(null);
@@ -485,19 +495,42 @@ export default function App() {
         const storeName = downloadName
           ? file.name.replace(/\.[^.]+$/, '') + downloadName
           : file.name;
-        await putOfflineBlob(id, blob, {
+        const isExport = Boolean(downloadName) || (file.mimeType || '').startsWith('application/vnd.google-apps.');
+        const { evictedIds } = await putOfflineBlob(id, blob, {
           name: storeName,
           mimeType: blob.type || file.mimeType,
           size: blob.size || file.size,
           sha256: sha,
         });
-        setFiles(prev => prev.map(f => (f.id === id ? {
-          ...f,
-          isOffline: true,
-          contentHash: sha ? ('sha256:' + sha) : f.contentHash,
-          size: blob.size || f.size,
-        } : f)));
-        showDriveToast('Pinned offline: "' + storeName + '"' + (sha ? ' (SHA-256)' : ''));
+        const offlineMeta = await listOfflineMeta();
+        const offlineIds = new Set(offlineMeta.map(m => m.id));
+        const hashById = new Map(
+          offlineMeta.filter(m => m.sha256).map(m => [m.id, 'sha256:' + m.sha256!])
+        );
+        setFiles(prev => prev.map(f => {
+          if (f.id === id) {
+            return {
+              ...f,
+              isOffline: true,
+              contentHash: sha ? ('sha256:' + sha) : f.contentHash,
+              size: blob.size || f.size,
+            };
+          }
+          if (evictedIds.includes(f.id) || (f.isOffline && !offlineIds.has(f.id))) {
+            return { ...f, isOffline: false };
+          }
+          if (offlineIds.has(f.id) && hashById.has(f.id)) {
+            return { ...f, isOffline: true, contentHash: hashById.get(f.id) || f.contentHash };
+          }
+          return f;
+        }));
+        const hashLabel = sha
+          ? (isExport ? ' (SHA-256 of offline export)' : ' (SHA-256)')
+          : '';
+        const evictMsg = evictedIds.length
+          ? ' · Evicted ' + evictedIds.length + ' older pin(s) under cache quota'
+          : '';
+        showDriveToast('Pinned offline: "' + storeName + '"' + hashLabel + evictMsg);
       } catch (err: any) {
         console.error(err);
         showDriveToast('Offline pin failed: ' + (err?.message || 'error'));
