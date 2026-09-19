@@ -1,6 +1,5 @@
 /**
  * IndexedDB cache for offline-pinned file bytes.
- * Only stores blobs for files that were successfully downloaded.
  */
 
 const DB_NAME = 'drive-semantic-offline';
@@ -62,10 +61,7 @@ export async function getOfflineBlob(id: string): Promise<Blob | null> {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).get(id);
-      req.onsuccess = () => {
-        const row = req.result;
-        resolve(row?.blob || null);
-      };
+      req.onsuccess = () => resolve(req.result?.blob || null);
       req.onerror = () => reject(req.error);
     });
   } catch {
@@ -94,15 +90,16 @@ export async function listOfflineMeta(): Promise<OfflineBlobMeta[]> {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).getAll();
       req.onsuccess = () => {
-        const rows = (req.result || []).map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          mimeType: r.mimeType,
-          size: r.size,
-          cachedAt: r.cachedAt,
-          sha256: r.sha256,
-        }));
-        resolve(rows);
+        resolve(
+          (req.result || []).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            mimeType: r.mimeType,
+            size: r.size,
+            cachedAt: r.cachedAt,
+            sha256: r.sha256,
+          }))
+        );
       };
       req.onerror = () => reject(req.error);
     });
@@ -111,7 +108,6 @@ export async function listOfflineMeta(): Promise<OfflineBlobMeta[]> {
   }
 }
 
-/** SHA-256 of a Blob using Web Crypto */
 export async function sha256Blob(blob: Blob): Promise<string> {
   const buf = await blob.arrayBuffer();
   const hash = await crypto.subtle.digest('SHA-256', buf);
@@ -120,18 +116,47 @@ export async function sha256Blob(blob: Blob): Promise<string> {
     .join('');
 }
 
-/**
- * Download non-Google-native Drive file bytes.
- * Google Docs/Sheets need export — not supported here.
- */
+const NATIVE_EXPORT: Record<string, { exportMime: string; ext: string }> = {
+  'application/vnd.google-apps.document': {
+    exportMime: 'application/pdf',
+    ext: '.pdf',
+  },
+  'application/vnd.google-apps.spreadsheet': {
+    exportMime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ext: '.xlsx',
+  },
+  'application/vnd.google-apps.presentation': {
+    exportMime: 'application/pdf',
+    ext: '.pdf',
+  },
+  'application/vnd.google-apps.drawing': {
+    exportMime: 'image/png',
+    ext: '.png',
+  },
+};
+
+export function getNativeExportHint(mimeType: string): { exportMime: string; ext: string } | null {
+  return NATIVE_EXPORT[mimeType] || null;
+}
+
+/** Binary via alt=media; Google Docs/Sheets/Slides via export. */
 export async function downloadDriveFileBytes(
   accessToken: string,
   fileId: string,
   mimeType: string
-): Promise<Blob> {
-  if (mimeType.startsWith('application/vnd.google-apps.')) {
-    throw new Error('Google native files need export; pin binary files (PDF, images, zip) instead');
+): Promise<{ blob: Blob; downloadName?: string }> {
+  const native = NATIVE_EXPORT[mimeType];
+  if (native) {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(native.exportMime)}`,
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    if (!res.ok) {
+      throw new Error('Export failed: ' + res.status);
+    }
+    return { blob: await res.blob(), downloadName: native.ext };
   }
+
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`,
     { headers: { Authorization: 'Bearer ' + accessToken } }
@@ -139,5 +164,5 @@ export async function downloadDriveFileBytes(
   if (!res.ok) {
     throw new Error('Download failed: ' + res.status);
   }
-  return res.blob();
+  return { blob: await res.blob() };
 }

@@ -1,4 +1,4 @@
-import { DriveFile, FolderItem, FileCategory } from '../types';
+import { DriveFile, FolderItem } from '../types';
 import { getCategoryFromMime } from './driveApi';
 
 const FOLDER_COLORS = ['blue', 'emerald', 'purple', 'amber', 'rose', 'indigo', 'cyan', 'zinc'];
@@ -6,7 +6,6 @@ const FOLDER_COLORS = ['blue', 'emerald', 'purple', 'amber', 'rose', 'indigo', '
 export interface DriveFetchResult {
   files: DriveFile[];
   folders: FolderItem[];
-  /** True when more Drive pages existed but we stopped at maxPages */
   truncated: boolean;
   pagesFetched: number;
 }
@@ -15,7 +14,6 @@ export type DriveFileTypeFilter = 'all' | 'documents' | 'images' | 'videos' | 's
 
 function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
   const base = 'trashed=false';
-
   switch (fileType) {
     case 'documents':
       return `${base} and (mimeType='application/pdf' or mimeType='application/msword' or mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or mimeType='application/vnd.google-apps.document' or mimeType='text/plain' or mimeType='application/rtf')`;
@@ -29,7 +27,6 @@ function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
       return `${base} and (mimeType='application/vnd.ms-excel' or mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.google-apps.spreadsheet' or mimeType='text/csv')`;
     case 'folders':
       return `${base} and mimeType='application/vnd.google-apps.folder'`;
-    case 'all':
     default:
       return base;
   }
@@ -70,8 +67,7 @@ export async function fetchGoogleDriveData(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const message = errorData?.error?.message || `Google Drive API error: ${response.status} ${response.statusText}`;
-      throw new Error(message);
+      throw new Error(errorData?.error?.message || `Google Drive API error: ${response.status}`);
     }
 
     const data = await response.json();
@@ -82,7 +78,6 @@ export async function fetchGoogleDriveData(
   }
 
   const truncated = Boolean(pageToken);
-
   const folders: FolderItem[] = [];
   const files: DriveFile[] = [];
   let colorIdx = 0;
@@ -100,7 +95,6 @@ export async function fetchGoogleDriveData(
     } else {
       const category = getCategoryFromMime(item.mimeType || '', item.name || '');
       const primaryParent = item.parents && item.parents.length > 0 ? item.parents[0] : undefined;
-
       files.push({
         id: item.id,
         name: item.name,
@@ -135,7 +129,6 @@ export async function moveGoogleDriveFile(
   currentParentIds: string[] = []
 ): Promise<void> {
   let previousParents = currentParentIds.join(',');
-
   if (!previousParents) {
     const metaRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents&supportsAllDrives=true`,
@@ -146,17 +139,11 @@ export async function moveGoogleDriveFile(
       previousParents = (meta.parents || []).join(',');
     }
   }
-
   const params = new URLSearchParams();
-  if (newFolderId && newFolderId !== 'root') {
-    params.set('addParents', newFolderId);
-  }
-  if (previousParents) {
-    params.set('removeParents', previousParents);
-  }
+  if (newFolderId && newFolderId !== 'root') params.set('addParents', newFolderId);
+  if (previousParents) params.set('removeParents', previousParents);
   params.set('fields', 'id,parents');
   params.set('supportsAllDrives', 'true');
-
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?${params.toString()}`,
     {
@@ -167,7 +154,6 @@ export async function moveGoogleDriveFile(
       },
     }
   );
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData?.error?.message || `Failed to move file: ${response.status}`);
@@ -189,16 +175,13 @@ export async function createGoogleDriveFolder(
       mimeType: 'application/vnd.google-apps.folder',
     }),
   });
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData?.error?.message || `Failed to create folder: ${response.status}`);
   }
-
   return response.json();
 }
 
-/** Move file to Google Drive trash (recoverable). */
 export async function deleteGoogleDriveFile(
   accessToken: string,
   fileId: string
@@ -214,14 +197,34 @@ export async function deleteGoogleDriveFile(
       body: JSON.stringify({ trashed: true }),
     }
   );
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData?.error?.message || `Failed to trash file: ${response.status}`);
   }
 }
 
-/** Upload a browser File to Google Drive via multipart. */
+export async function starGoogleDriveFile(
+  accessToken: string,
+  fileId: string,
+  starred: boolean
+): Promise<void> {
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ starred }),
+    }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData?.error?.message || `Failed to update star: ${response.status}`);
+  }
+}
+
 export async function uploadGoogleDriveFile(
   accessToken: string,
   file: File,
@@ -238,16 +241,13 @@ export async function uploadGoogleDriveFile(
   const boundary = '-------driveBoundary' + Date.now();
   const delimiter = '\r\n--' + boundary + '\r\n';
   const closeDelim = '\r\n--' + boundary + '--';
-
   const metaPart =
     delimiter +
     'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
     JSON.stringify(metadata);
-
   const fileHeader =
     delimiter +
     'Content-Type: ' + (file.type || 'application/octet-stream') + '\r\n\r\n';
-
   const body = new Blob([
     new Blob([metaPart]),
     new Blob([fileHeader]),
