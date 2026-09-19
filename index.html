@@ -3,7 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Suppress benign Vite HMR disconnected websocket notices in AI Studio preview sandbox
       window.addEventListener('unhandledrejection', function(event) {
         if (event && event.reason) {
           var msg = String(event.reason.message || event.reason);
@@ -22,19 +21,19 @@
       });
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Perfect VVF - Secure Drive &amp; Responsive Emulator</title>
-    <meta name="description" content="Virtual Vault &amp; Files suite with Google Drive sync, Phone Memory &amp; SD Card storage scanner, client-side AES-256 encryption, duplicate finder, semantic search, and an interactive multi-device viewport emulator." />
-    <meta property="og:title" content="Perfect VVF - Secure Drive &amp; Responsive Emulator" />
-    <meta property="og:description" content="Virtual Vault &amp; Files suite with Google Drive sync, Phone Memory &amp; SD Card storage scanner, client-side AES-256 encryption, duplicate finder, semantic search, and an interactive multi-device viewport emulator." />
+    <title>Drive Semantic Search</title>
+    <meta name="description" content="Google Drive sync, offline pin, vault encryption, duplicate finder, and keyword search." />
+    <meta property="og:title" content="Drive Semantic Search" />
+    <meta property="og:description" content="Google Drive sync, offline pin, encrypted vault, duplicates, and keyword search." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#09090b" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="PerfectVVF" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta name="apple-mobile-web-app-title" content="Drive Search" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com">
     <link rel="dns-prefetch" href="https://fonts.gstatic.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -51,4 +50,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
