@@ -14,7 +14,10 @@ import {
   deleteGoogleDriveFile,
   uploadGoogleDriveFile,
   starGoogleDriveFile,
+  listSharedDrives,
   DriveFileTypeFilter,
+  DriveCorpus,
+  SharedDriveInfo,
 } from './lib/googleDriveService';
 import { loadVaultFiles, saveVaultFile, removeVaultFile } from './lib/vaultStore';
 import {
@@ -59,6 +62,9 @@ export default function App() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [driveFileTypeFilter, setDriveFileTypeFilter] = useState<DriveFileTypeFilter>('all');
+  const [driveCorpus, setDriveCorpus] = useState<DriveCorpus>('user');
+  const [sharedDriveId, setSharedDriveId] = useState<string>('');
+  const [sharedDrives, setSharedDrives] = useState<SharedDriveInfo[]>([]);
   const [driveTruncated, setDriveTruncated] = useState(false);
   const [driveNotification, setDriveNotification] = useState<string | null>(null);
   const [authErrorModalOpen, setAuthErrorModalOpen] = useState(false);
@@ -126,7 +132,14 @@ export default function App() {
         });
         try {
           setIsGoogleLoading(true);
-          const driveData = await fetchGoogleDriveData(token, 'all');
+          try {
+            const drives = await listSharedDrives(token);
+            setSharedDrives(drives);
+          } catch (e) {
+            console.warn('Shared drives list skipped:', e);
+            setSharedDrives([]);
+          }
+          const driveData = await fetchGoogleDriveData(token, 'all', 20, 'user');
           setDriveTruncated(Boolean(driveData.truncated));
           if (driveData.files.length > 0 || driveData.folders.length > 0) {
             setFiles(prev => {
@@ -197,6 +210,13 @@ export default function App() {
       if (result) {
         setGoogleAccessToken(result.accessToken);
         setIsGoogleConnected(true);
+        try {
+          const drives = await listSharedDrives(result.accessToken);
+          setSharedDrives(drives);
+        } catch (e) {
+          console.warn('Shared drives list skipped:', e);
+          setSharedDrives([]);
+        }
         setUserProfile({
           name: result.user.displayName || 'Google Drive User',
           email: result.user.email || '',
@@ -204,7 +224,7 @@ export default function App() {
           isConnected: true,
         });
         try {
-          const driveData = await fetchGoogleDriveData(result.accessToken, driveFileTypeFilter);
+          const driveData = await fetchGoogleDriveData(result.accessToken, driveFileTypeFilter, 20, driveCorpus, sharedDriveId || undefined);
           setDriveTruncated(Boolean(driveData.truncated));
           if (driveData.files.length > 0 || driveData.folders.length > 0) {
             setFiles(prev => {
@@ -247,6 +267,9 @@ export default function App() {
       setIsGoogleConnected(false);
       setGoogleAccessToken(null);
       setDriveTruncated(false);
+      setSharedDrives([]);
+      setDriveCorpus('user');
+      setSharedDriveId('');
       setUserProfile(p => ({ ...p, isConnected: false, email: '' }));
       setFiles(INITIAL_FILES);
       setFolders(INITIAL_FOLDERS);
@@ -256,7 +279,11 @@ export default function App() {
     }
   };
 
-  const handleSyncGoogleDrive = async (fileType?: DriveFileTypeFilter) => {
+  const handleSyncGoogleDrive = async (
+    fileType?: DriveFileTypeFilter,
+    corpusOverride?: DriveCorpus,
+    driveIdOverride?: string
+  ) => {
     let token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (!token) {
       handleGoogleSignIn();
@@ -264,10 +291,12 @@ export default function App() {
     }
     setGoogleAccessToken(token);
     const typeToUse = fileType || driveFileTypeFilter;
+    const corpus = corpusOverride ?? driveCorpus;
+    const dId = driveIdOverride !== undefined ? driveIdOverride : sharedDriveId;
     try {
       setIsGoogleLoading(true);
       if (fileType) setDriveFileTypeFilter(fileType);
-      const driveData = await fetchGoogleDriveData(token, typeToUse);
+      const driveData = await fetchGoogleDriveData(token, typeToUse, 20, corpus, dId || undefined);
       setDriveTruncated(Boolean(driveData.truncated));
       setFiles(prev => {
         const driveIds = new Set(driveData.files.map(f => f.id));
@@ -539,6 +568,14 @@ export default function App() {
             onSyncGoogleDrive={handleSyncGoogleDrive}
             driveTruncated={driveTruncated}
             driveFileTypeFilter={driveFileTypeFilter}
+            driveCorpus={driveCorpus}
+            sharedDriveId={sharedDriveId}
+            sharedDrives={sharedDrives}
+            onDriveCorpusChange={(c, id) => {
+              setDriveCorpus(c);
+              setSharedDriveId(id || '');
+              handleSyncGoogleDrive(driveFileTypeFilter, c, id || '');
+            }}
             onDriveFileTypeChange={t => { setDriveFileTypeFilter(t); handleSyncGoogleDrive(t); }}
           />
         )}
