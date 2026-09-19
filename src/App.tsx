@@ -13,6 +13,7 @@ import {
   createGoogleDriveFolder,
   deleteGoogleDriveFile,
   uploadGoogleDriveFile,
+  starGoogleDriveFile,
   DriveFileTypeFilter,
 } from './lib/googleDriveService';
 import { loadVaultFiles, saveVaultFile, removeVaultFile } from './lib/vaultStore';
@@ -21,6 +22,7 @@ import {
   removeOfflineBlob,
   downloadDriveFileBytes,
   sha256Blob,
+  listOfflineMeta,
 } from './lib/offlineCache';
 
 const DeviceStorageScanner = React.lazy(() =>
@@ -87,6 +89,29 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const metas = await listOfflineMeta();
+        if (cancelled || !metas.length) return;
+        const offlineIds = new Set(metas.map(m => m.id));
+        const hashById = new Map(metas.filter(m => m.sha256).map(m => [m.id, 'sha256:' + m.sha256!]));
+        setFiles(prev => prev.map(f => {
+          if (!offlineIds.has(f.id)) return f;
+          return {
+            ...f,
+            isOffline: true,
+            contentHash: hashById.get(f.id) || f.contentHash,
+          };
+        }));
+      } catch (e) {
+        console.warn('Offline restore skipped:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isGoogleConnected, files.length]);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -383,8 +408,25 @@ export default function App() {
     }
   };
 
-  const handleToggleStar = (id: string) => {
-    setFiles(prev => prev.map(f => (f.id === id ? { ...f, starred: !f.starred } : f)));
+  const handleToggleStar = async (id: string) => {
+    const file = files.find(f => f.id === id);
+    if (!file) return;
+    const next = !file.starred;
+    setFiles(prev => prev.map(f => (f.id === id ? { ...f, starred: next } : f)));
+    if (file.isGoogleDriveItem) {
+      const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
+      if (!token) {
+        setFiles(prev => prev.map(f => (f.id === id ? { ...f, starred: file.starred } : f)));
+        showDriveToast('Sign in required to star on Drive');
+        return;
+      }
+      try {
+        await starGoogleDriveFile(token, id, next);
+      } catch (err: any) {
+        setFiles(prev => prev.map(f => (f.id === id ? { ...f, starred: file.starred } : f)));
+        showDriveToast('Star failed: ' + (err?.message || 'error'));
+      }
+    }
   };
 
   const handleToggleOffline = async (id: string) => {
@@ -406,14 +448,17 @@ export default function App() {
       }
       try {
         setIsGoogleLoading(true);
-        const blob = await downloadDriveFileBytes(token, file.id, file.mimeType);
+        const { blob, downloadName } = await downloadDriveFileBytes(token, file.id, file.mimeType);
         let sha: string | undefined;
         try {
           sha = await sha256Blob(blob);
         } catch { /* optional */ }
+        const storeName = downloadName
+          ? file.name.replace(/\.[^.]+$/, '') + downloadName
+          : file.name;
         await putOfflineBlob(id, blob, {
-          name: file.name,
-          mimeType: file.mimeType,
+          name: storeName,
+          mimeType: blob.type || file.mimeType,
           size: blob.size || file.size,
           sha256: sha,
         });
@@ -423,7 +468,7 @@ export default function App() {
           contentHash: sha ? ('sha256:' + sha) : f.contentHash,
           size: blob.size || f.size,
         } : f)));
-        showDriveToast('Pinned offline: "' + file.name + '"' + (sha ? ' (SHA-256 stored)' : ''));
+        showDriveToast('Pinned offline: "' + storeName + '"' + (sha ? ' (SHA-256)' : ''));
       } catch (err: any) {
         console.error(err);
         showDriveToast('Offline pin failed: ' + (err?.message || 'error'));
