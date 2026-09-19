@@ -94,11 +94,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       isEncrypted: false,
       contentHash: `user-${Date.now()}-${uploaded.size}`,
       tags: ['upload', 'local', cat],
-      semanticSummary: `User-uploaded: ${uploaded.name}`,
+      semanticSummary: `Local only (not on Google Drive): ${uploaded.name}`,
       starred: false,
     });
     e.target.value = '';
-    showToast(`\"${uploaded.name}\" uploaded`);
+    showToast(`"${uploaded.name}" added locally (not uploaded to Google Drive)`);
   };
 
   const toggleSelect = (id: string) => {
@@ -129,7 +129,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Connected</span>
               </div>
               <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-0.5">
-                {googleUserEmail} • {files.filter(f => f.isGoogleDriveItem).length} Drive files
+                {googleUserEmail || 'Signed in'} • {files.filter(f => f.isGoogleDriveItem).length} Drive files
               </p>
             </div>
           </div>
@@ -138,12 +138,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <FileTypeSelector value={driveFileTypeFilter} onChange={onDriveFileTypeChange} disabled={isGoogleLoading} />
             )}
             {onSyncGoogleDrive && (
-              <button
-                type="button"
-                onClick={() => onSyncGoogleDrive(driveFileTypeFilter)}
-                disabled={isGoogleLoading}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-semibold disabled:opacity-50 min-h-[38px]"
-              >
+              <button type="button" onClick={() => onSyncGoogleDrive(driveFileTypeFilter)} disabled={isGoogleLoading}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-semibold disabled:opacity-50 min-h-[38px]">
                 <RefreshCw className={`w-3.5 h-3.5 ${isGoogleLoading ? 'animate-spin text-blue-500' : ''}`} />
                 <span>{isGoogleLoading ? 'Syncing...' : 'Sync Now'}</span>
               </button>
@@ -177,18 +173,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-          <input
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Search files..."
-            className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm"
-          />
+          <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search files..."
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm" />
         </div>
-        <select
-          value={filterCategory}
-          onChange={e => setFilterCategory(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-semibold"
-        >
+        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-semibold">
           <option value="all">All types</option>
           <option value="document">Documents</option>
           <option value="image">Images</option>
@@ -214,11 +203,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filteredFiles.map(file => (
-          <div
-            key={file.id}
-            className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 hover:border-blue-400 transition cursor-pointer"
-            onClick={() => onSelectPreviewFile(file)}
-          >
+          <div key={file.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 hover:border-blue-400 transition cursor-pointer"
+            onClick={() => onSelectPreviewFile(file)}>
             <div className="flex items-start gap-2">
               <button type="button" onClick={e => { e.stopPropagation(); toggleSelect(file.id); }} className="mt-0.5">
                 {selectedFileIds.has(file.id) ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4 text-zinc-400" />}
@@ -262,7 +248,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onDeleteMultipleFiles(deleteTargetFiles.map(f => f.id));
           setIsDeleteModalOpen(false);
           setSelectedFileIds(new Set());
-          showToast('Files deleted');
+          showToast('Delete requested');
         }}
       />
     </div>
