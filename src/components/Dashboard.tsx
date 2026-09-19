@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { DriveFile, FileCategory, VaultFile, FolderItem } from '../types';
 import { formatBytes } from '../lib/driveApi';
+import { runSemanticSearch } from '../lib/searchEngine';
 import { DriveFileTypeFilter, DriveCorpus, SharedDriveInfo } from '../lib/googleDriveService';
 import { FileTypeSelector } from './FileTypeSelector';
 import { MoveToFolderModal } from './MoveToFolderModal';
@@ -62,22 +63,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const filteredFiles = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return files.filter(file => {
-      if (filterCategory === 'starred' && !file.starred) return false;
-      if (filterCategory === 'google_drive' && !file.isGoogleDriveItem) return false;
-      if (filterCategory !== 'all' && filterCategory !== 'starred' && filterCategory !== 'google_drive') {
-        if (file.category !== filterCategory) return false;
-      }
-      if (q) {
-        return (
-          file.name.toLowerCase().includes(q) ||
-          (file.tags || []).some(t => t.toLowerCase().includes(q)) ||
-          (file.semanticSummary || '').toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
+    // Same ranking as Semantic Search tab (metadata/keyword — not document body)
+    let list = files;
+    if (filterCategory === 'starred') list = list.filter(f => f.starred);
+    else if (filterCategory === 'google_drive') list = list.filter(f => f.isGoogleDriveItem);
+    else if (filterCategory !== 'all') list = list.filter(f => f.category === filterCategory);
+
+    if (!searchTerm.trim()) return list;
+    const ranked = runSemanticSearch(searchTerm, list, 'all');
+    return ranked.map(r => r.file);
   }, [files, filterCategory, searchTerm]);
 
   const selectedFilesList = useMemo(() => files.filter(f => selectedFileIds.has(f.id)), [files, selectedFileIds]);
