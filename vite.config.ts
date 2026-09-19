@@ -15,9 +15,9 @@ export default defineConfig(() => {
         includeAssets: ['apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: './',
-          name: 'Perfect VVF - Secure Drive & Responsive Emulator',
-          short_name: 'PerfectVVF',
-          description: 'Virtual Vault & Files with zero-knowledge AES-256 encryption and multi-device emulator.',
+          name: 'Drive Semantic Search',
+          short_name: 'DriveSearch',
+          description: 'Google Drive metadata browser with keyword search and session encrypted notes (prototype).',
           theme_color: '#09090b',
           background_color: '#09090b',
           display: 'standalone',
@@ -75,20 +75,6 @@ export default defineConfig(() => {
                 },
               },
             },
-            {
-              urlPattern: /^https:\/\/images\.unsplash\.com\/.*/i,
-              handler: 'StaleWhileRevalidate',
-              options: {
-                cacheName: 'unsplash-images-cache',
-                expiration: {
-                  maxEntries: 30,
-                  maxAgeSeconds: 60 * 60 * 24 * 30,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
-              },
-            },
           ],
         },
         devOptions: {
@@ -115,10 +101,7 @@ export default defineConfig(() => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };
