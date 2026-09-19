@@ -33,12 +33,11 @@ export const OfflineFilesList: React.FC<OfflineFilesListProps> = ({
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg sm:text-xl font-bold tracking-tight">Offline Pinned Storage</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Blob cache (when downloaded)
+                  IndexedDB blobs
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-                Pin Drive binary files (PDF, images, zip) from preview to download into IndexedDB.
-                Google Docs/Sheets native formats cannot be pinned this way.
+                Pin from file preview. Binary files download as-is; Docs/Sheets/Slides export as PDF/XLSX.
               </p>
             </div>
           </div>
@@ -51,7 +50,7 @@ export const OfflineFilesList: React.FC<OfflineFilesListProps> = ({
 
       {offlineFiles.length === 0 ? (
         <div className="text-center py-12 text-sm text-zinc-500 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800">
-          No pinned files. Open a Drive PDF/image and use offline pin.
+          No pinned files. Open a Drive file and use Pin for Offline Access.
         </div>
       ) : (
         <div className="space-y-2">
