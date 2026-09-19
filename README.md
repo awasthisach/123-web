@@ -1,78 +1,39 @@
-# Drive Semantic Search Web
+# Drive Semantic Search
 
-Client-side Google Drive browser with metadata search, a prototype privacy vault, and device-storage demo UI.
+Client-side web app to sign in with Google, browse/sync Drive metadata, pin files offline, encrypt local notes, and find likely duplicates.
 
-**Live:** [https://awasthisach.github.io/Drive-Semantic-Search-Web/](https://awasthisach.github.io/Drive-Semantic-Search-Web/)
+**Live:** https://awasthisach.github.io/Drive-Semantic-Search-Web/
 
-> **Honest scope:** This is a **prototype / demo**, not a production backup or zero-knowledge vault product. See limitations below.
+## Features
 
----
+- **Google Drive** — OAuth sign-in, list (~10k with pagination), type filters, upload, trash, move, folders, star
+- **Token lifecycle** — expiry tracking, silent refresh, revoke on sign-out
+- **Offline pin** — binary download or Docs/Sheets/Slides export into IndexedDB + SHA-256; preview from cache
+- **Vault** — client-side encrypted notes (PBKDF2 + AES-GCM) in IndexedDB
+- **Duplicates** — size/name candidates; SHA-256 groups after offline pin
+- **Search** — keyword + metadata ranking (not neural embeddings)
+- **PWA** — installable shell via Vite PWA
 
-## What works today
+## Honest limits
 
-- **Google Sign-In (OAuth)** via Google Identity Services + Firebase helper
-- **Drive metadata sync** (`files.list`) with type filters (All / Docs / PDF / Photos / Videos / Sheets) and pagination (up to ~2000 items)
-- **Keyword / heuristic search** over filename, tags, and summaries (not ML embeddings)
-- **Privacy Vault (text notes)** — AES-256-GCM via Web Crypto; passphrase chosen by you (nothing hard-coded)
-- **Local-only** file list items from the Upload button (metadata in memory, **not** uploaded to Drive)
+- Search is **not** vector/embedding semantic search
+- Full-Drive content indexing of every file byte is not done (API cost / quota)
+- Scope uses `drive` for list + mutate; tighten only if product requirements allow
+- Device “storage scanner” is limited by browser sandbox (File System Access where available)
 
-## What does *not* work / is demo-only
+## Setup
 
-| UI label | Reality |
-|----------|---------|
-| “Upload” / “Backed up to Google Drive” | Local React state only — no `files.create` upload |
-| Device Storage Scanner | Mock / picker metadata demo — not full phone filesystem wipe |
-| “Encrypt to Vault” from device scan | Disabled — no file bytes to encrypt |
-| “AI Semantic Search” | Deterministic keyword scoring, not embeddings/LLM |
-| IndexedDB offline file cache | **Not implemented** for user files (PWA may cache app shell only) |
-| Zero-knowledge multi-device vault | Passphrase never leaves the browser, but vault data is **not** persisted across refresh |
+1. Enable Google Drive API + OAuth client (Web) for your domain
+2. Set Authorized JavaScript origins / redirect URIs for local + GitHub Pages
+3. Configure `firebase-applet-config.json` / OAuth client ID used by the app
+4. `npm install && npm run dev`
 
----
+## Scripts
 
-## Security notes
+- `npm run dev` — local
+- `npm run lint` — `tsc --noEmit`
+- `npm run build` — production
 
-- OAuth access token is kept in memory + `sessionStorage` (cleared when the tab session ends). Treat XSS as full Drive access risk while signed in.
-- Scope used: `https://www.googleapis.com/auth/drive` (list + mutate). Prefer signing out when finished.
-- Vault KDF: PBKDF2-HMAC-SHA-256, **310,000** iterations → AES-GCM-256.
-- **Never** reuse a demo passphrase. Choose your own (≥ 8 characters).
+## Stack
 
----
-
-## Getting started
-
-```bash
-git clone https://github.com/awasthisach/Drive-Semantic-Search-Web.git
-cd Drive-Semantic-Search-Web
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-```bash
-npm run build
-npm run preview
-```
-
-Deploy: GitHub Actions → GitHub Pages on push to `main`.
-
-Configure OAuth client (Google Cloud Console):
-
-- Authorized JavaScript origins: your Pages origin + `http://localhost:3000`
-- Enable **Google Drive API**
-- Put client id in `firebase-applet-config.json` → `oAuthClientId`
-
----
-
-## Tech stack
-
-- React 19 + Vite + TypeScript + Tailwind CSS v4
-- Firebase Auth helpers + Google Identity Services
-- Google Drive REST API v3
-- Web Crypto API (PBKDF2 + AES-GCM)
-
----
-
-## License
-
-MIT
+React, Vite, Tailwind, Firebase Auth + Google Identity Services, Drive API v3, IndexedDB, Web Crypto.
