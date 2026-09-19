@@ -16,6 +16,12 @@ import {
   DriveFileTypeFilter,
 } from './lib/googleDriveService';
 import { loadVaultFiles, saveVaultFile, removeVaultFile } from './lib/vaultStore';
+import {
+  putOfflineBlob,
+  removeOfflineBlob,
+  downloadDriveFileBytes,
+  sha256Blob,
+} from './lib/offlineCache';
 
 const DeviceStorageScanner = React.lazy(() =>
   import('./components/DeviceStorageScanner').then(m => ({ default: m.DeviceStorageScanner }))
@@ -380,8 +386,55 @@ export default function App() {
   const handleToggleStar = (id: string) => {
     setFiles(prev => prev.map(f => (f.id === id ? { ...f, starred: !f.starred } : f)));
   };
-  const handleToggleOffline = (id: string) => {
-    setFiles(prev => prev.map(f => (f.id === id ? { ...f, isOffline: !f.isOffline } : f)));
+
+  const handleToggleOffline = async (id: string) => {
+    const file = files.find(f => f.id === id);
+    if (!file) return;
+
+    if (file.isOffline) {
+      setFiles(prev => prev.map(f => (f.id === id ? { ...f, isOffline: false } : f)));
+      await removeOfflineBlob(id);
+      showDriveToast('Unpinned from offline cache');
+      return;
+    }
+
+    if (file.isGoogleDriveItem) {
+      const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
+      if (!token) {
+        showDriveToast('Sign in required to cache Drive files offline');
+        return;
+      }
+      try {
+        setIsGoogleLoading(true);
+        const blob = await downloadDriveFileBytes(token, file.id, file.mimeType);
+        let sha: string | undefined;
+        try {
+          sha = await sha256Blob(blob);
+        } catch { /* optional */ }
+        await putOfflineBlob(id, blob, {
+          name: file.name,
+          mimeType: file.mimeType,
+          size: blob.size || file.size,
+          sha256: sha,
+        });
+        setFiles(prev => prev.map(f => (f.id === id ? {
+          ...f,
+          isOffline: true,
+          contentHash: sha ? ('sha256:' + sha) : f.contentHash,
+          size: blob.size || f.size,
+        } : f)));
+        showDriveToast('Pinned offline: "' + file.name + '"' + (sha ? ' (SHA-256 stored)' : ''));
+      } catch (err: any) {
+        console.error(err);
+        showDriveToast('Offline pin failed: ' + (err?.message || 'error'));
+      } finally {
+        setIsGoogleLoading(false);
+      }
+      return;
+    }
+
+    setFiles(prev => prev.map(f => (f.id === id ? { ...f, isOffline: true } : f)));
+    showDriveToast('Marked offline (local index only — no file bytes)');
   };
 
   const handleAddVaultFile = async (file: VaultFile) => {
