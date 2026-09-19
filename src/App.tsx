@@ -1,1 +1,1 @@
-RESTORE_FROM_LOCAL_FILE
+@/home/workdir/artifacts/App.FINAL.txt
