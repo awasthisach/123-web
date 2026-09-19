@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Cloud, CheckCircle2, X,
-} from 'lucide-react';
+import { Cloud, CheckCircle2, X } from 'lucide-react';
 import { DriveFile, VaultFile, SyncStats, FolderItem } from './types';
 import { INITIAL_FILES, INITIAL_FOLDERS } from './lib/driveApi';
 import { Dashboard } from './components/Dashboard';
@@ -14,8 +12,10 @@ import {
   moveGoogleDriveFile,
   createGoogleDriveFolder,
   deleteGoogleDriveFile,
+  uploadGoogleDriveFile,
   DriveFileTypeFilter,
 } from './lib/googleDriveService';
+import { loadVaultFiles, saveVaultFile, removeVaultFile } from './lib/vaultStore';
 
 const DeviceStorageScanner = React.lazy(() =>
   import('./components/DeviceStorageScanner').then(m => ({ default: m.DeviceStorageScanner }))
@@ -61,14 +61,25 @@ export default function App() {
   });
   const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
   const [searchMoveTargetFile, setSearchMoveTargetFile] = useState<DriveFile | null>(null);
-  const [userProfile, setUserProfile] = useState({
-    name: 'User', email: '', avatar: '', isConnected: false,
-  });
+  const [userProfile, setUserProfile] = useState({ name: 'User', email: '', avatar: '', isConnected: false });
 
   const showDriveToast = (msg: string) => {
     setDriveNotification(msg);
     setTimeout(() => setDriveNotification(null), 5000);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await loadVaultFiles();
+        if (!cancelled && stored.length) setVaultFiles(stored);
+      } catch (e) {
+        console.warn('Vault restore skipped:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -113,6 +124,30 @@ export default function App() {
 
   const handleUploadFile = (newFile: DriveFile) => setFiles(prev => [newFile, ...prev]);
 
+  const handleUploadToDrive = async (file: File) => {
+    const token = googleAccessToken || (await getAccessToken());
+    if (!token) {
+      showDriveToast('Sign in required to upload to Google Drive');
+      return;
+    }
+    try {
+      setIsGoogleLoading(true);
+      const uploaded = await uploadGoogleDriveFile(token, file);
+      setFiles(prev => [uploaded, ...prev]);
+      setSyncStats(s => ({
+        ...s,
+        totalSyncedCount: s.totalSyncedCount + 1,
+        lastSynced: new Date().toISOString(),
+      }));
+      showDriveToast('Uploaded to Drive: "' + uploaded.name + '"');
+    } catch (err: any) {
+      console.error(err);
+      showDriveToast('Upload failed: ' + (err?.message || 'error'));
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
   const handleConnectDemoDrive = () => {
     setIsGoogleConnected(true);
     setUserProfile(p => ({ ...p, name: 'Demo Drive', isConnected: true }));
@@ -148,12 +183,12 @@ export default function App() {
               return [...driveData.folders, ...remaining];
             });
             setSyncStats(s => ({ ...s, status: 'synced', totalSyncedCount: driveData.files.length, lastSynced: new Date().toISOString() }));
-            showDriveToast(`Google Drive connected! ${driveData.files.length} files loaded.`);
+            showDriveToast('Google Drive connected! ' + driveData.files.length + ' files loaded.');
           } else {
             showDriveToast('Google Drive connected! (No files found)');
           }
         } catch (e: any) {
-          showDriveToast(`Connected but sync issue: ${e?.message || 'retry Sync Now'}`);
+          showDriveToast('Connected but sync issue: ' + (e?.message || 'retry Sync Now'));
         }
       } else {
         showDriveToast('Google Sign-In cancelled.');
@@ -207,7 +242,7 @@ export default function App() {
         return [...driveData.folders, ...remaining];
       });
       setSyncStats(s => ({ ...s, status: 'synced', totalSyncedCount: driveData.files.length, lastSynced: new Date().toISOString() }));
-      showDriveToast(`Synced (${typeToUse}): ${driveData.files.length} files loaded!`);
+      showDriveToast('Synced (' + typeToUse + '): ' + driveData.files.length + ' files loaded!');
     } catch (err: any) {
       const msg = err?.message || 'Error';
       console.error('Sync failed:', msg);
@@ -216,7 +251,7 @@ export default function App() {
         setGoogleAccessToken(null);
         setIsGoogleConnected(false);
       } else {
-        showDriveToast(`Sync failed: ${msg}`);
+        showDriveToast('Sync failed: ' + msg);
       }
     } finally {
       setIsGoogleLoading(false);
@@ -235,10 +270,10 @@ export default function App() {
       try {
         await deleteGoogleDriveFile(token, id);
         setFiles(prev => prev.filter(f => f.id !== id));
-        showDriveToast(`Moved to Drive trash: "${fileToDelete.name}"`);
+        showDriveToast('Moved to Drive trash: "' + fileToDelete.name + '"');
       } catch (err: any) {
         console.error(err);
-        showDriveToast(`Delete failed: ${err?.message || 'error'} — file kept`);
+        showDriveToast('Delete failed: ' + (err?.message || 'error') + ' — file kept');
       }
     } else {
       setFiles(prev => prev.filter(f => f.id !== id));
@@ -276,9 +311,9 @@ export default function App() {
       setFiles(prev => prev.filter(f => !ok.has(f.id)));
     }
     if (failed.length) {
-      showDriveToast(`Delete partial: ${failed.length} failed (${failed.slice(0, 2).join(', ')})`);
+      showDriveToast('Delete partial: ' + failed.length + ' failed');
     } else if (succeeded.length) {
-      showDriveToast(`Moved ${succeeded.length} file(s) to Drive trash`);
+      showDriveToast('Moved ' + succeeded.length + ' file(s) to Drive trash');
     }
   };
 
@@ -288,10 +323,10 @@ export default function App() {
       try {
         const created = await createGoogleDriveFolder(token, newFolder.name);
         setFolders(prev => [...prev, { ...newFolder, id: created.id }]);
-        showDriveToast(`Folder "${newFolder.name}" created`);
+        showDriveToast('Folder "' + newFolder.name + '" created');
       } catch (err: any) {
         console.error(err);
-        showDriveToast(`Folder create failed: ${err?.message || 'error'}`);
+        showDriveToast('Folder create failed: ' + (err?.message || 'error'));
       }
     } else {
       setFolders(prev => [...prev, newFolder]);
@@ -319,7 +354,7 @@ export default function App() {
         succeeded.push(f.id);
       } catch (err: any) {
         console.error(err);
-        showDriveToast(`Move failed for ${f.name}: ${err?.message || 'error'}`);
+        showDriveToast('Move failed for ' + f.name);
       }
     }
     if (succeeded.length) {
@@ -334,8 +369,25 @@ export default function App() {
   const handleToggleOffline = (id: string) => {
     setFiles(prev => prev.map(f => (f.id === id ? { ...f, isOffline: !f.isOffline } : f)));
   };
-  const handleAddVaultFile = (file: VaultFile) => setVaultFiles(prev => [file, ...prev]);
-  const handleDeleteVaultFile = (id: string) => setVaultFiles(prev => prev.filter(f => f.id !== id));
+
+  const handleAddVaultFile = async (file: VaultFile) => {
+    setVaultFiles(prev => [file, ...prev]);
+    try {
+      await saveVaultFile(file);
+    } catch (e) {
+      console.warn('Vault persist failed:', e);
+      showDriveToast('Note encrypted but IndexedDB save failed');
+    }
+  };
+
+  const handleDeleteVaultFile = async (id: string) => {
+    setVaultFiles(prev => prev.filter(f => f.id !== id));
+    try {
+      await removeVaultFile(id);
+    } catch (e) {
+      console.warn('Vault remove failed:', e);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
@@ -365,7 +417,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <Dashboard
             files={files} folders={folders} vaultFiles={vaultFiles}
-            onUploadFile={handleUploadFile} onDeleteFile={handleDeleteFile}
+            onUploadFile={handleUploadFile} onUploadToDrive={handleUploadToDrive} onDeleteFile={handleDeleteFile}
             onDeleteMultipleFiles={handleRemoveMultipleFiles} onMoveFilesToFolder={handleMoveFilesToFolder}
             onCreateFolder={handleCreateFolder} onToggleStar={handleToggleStar} onToggleOffline={handleToggleOffline}
             onSelectTab={tab => setActiveTab(tab as any)} onSelectPreviewFile={setPreviewFile}
