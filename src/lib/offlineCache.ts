@@ -1,10 +1,11 @@
 /**
  * IndexedDB cache for offline-pinned file bytes.
  * Quota: max total bytes + max entries; LRU eviction by cachedAt.
+ * Migrations are data-preserving (no wipe of existing blobs).
  */
 
 const DB_NAME = 'drive-semantic-offline';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = 'blobs';
 const META_STORE = 'meta';
 
@@ -36,16 +37,16 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onerror = () => reject(req.error || new Error('IDB open failed'));
     req.onsuccess = () => resolve(req.result);
-    req.onupgradeneeded = (event) => {
+    req.onupgradeneeded = () => {
       const db = req.result;
-      const oldVersion = event.oldVersion;
-      if (oldVersion > 0 && oldVersion < DB_VERSION) {
-        if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
-        if (db.objectStoreNames.contains(META_STORE)) db.deleteObjectStore(META_STORE);
-      }
+      // Data-preserving: only create missing stores/indexes; never wipe blobs on upgrade
       if (!db.objectStoreNames.contains(STORE)) {
         const os = db.createObjectStore(STORE, { keyPath: 'id' });
-        os.createIndex('cachedAt', 'cachedAt', { unique: false });
+        try {
+          os.createIndex('cachedAt', 'cachedAt', { unique: false });
+        } catch {
+          /* index may already exist on partial upgrades */
+        }
       }
       if (!db.objectStoreNames.contains(META_STORE)) {
         db.createObjectStore(META_STORE, { keyPath: 'key' });
@@ -63,11 +64,12 @@ async function getAllRows(db: IDBDatabase): Promise<any[]> {
   });
 }
 
-async function enforceQuota(db: IDBDatabase, incomingSize: number): Promise<void> {
+async function enforceQuota(db: IDBDatabase, incomingSize: number): Promise<string[]> {
   const rows = await getAllRows(db);
   let total = rows.reduce((s, r) => s + (r.size || 0), 0) + incomingSize;
   let count = rows.length + 1;
-  if (total <= MAX_CACHE_BYTES && count <= MAX_CACHE_ENTRIES) return;
+  const evicted: string[] = [];
+  if (total <= MAX_CACHE_BYTES && count <= MAX_CACHE_ENTRIES) return evicted;
 
   const sorted = [...rows].sort(
     (a, b) => new Date(a.cachedAt || 0).getTime() - new Date(b.cachedAt || 0).getTime()
@@ -81,9 +83,11 @@ async function enforceQuota(db: IDBDatabase, incomingSize: number): Promise<void
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    evicted.push(row.id);
     total -= row.size || 0;
     count -= 1;
   }
+  return evicted;
 }
 
 export async function getCacheStats(): Promise<CacheStats> {
@@ -110,7 +114,7 @@ export async function putOfflineBlob(
   id: string,
   blob: Blob,
   meta: { name: string; mimeType: string; size: number; sha256?: string }
-): Promise<void> {
+): Promise<{ evictedIds: string[] }> {
   const db = await openDb();
   const size = meta.size || blob.size || 0;
   if (size > MAX_CACHE_BYTES) {
@@ -120,9 +124,9 @@ export async function putOfflineBlob(
         ' MB)'
     );
   }
-  await enforceQuota(db, size);
+  const evictedIds = await enforceQuota(db, size);
 
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put({
       id,
@@ -136,6 +140,7 @@ export async function putOfflineBlob(
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+  return { evictedIds };
 }
 
 export async function getOfflineBlob(id: string): Promise<Blob | null> {
