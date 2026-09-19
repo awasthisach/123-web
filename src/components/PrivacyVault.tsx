@@ -52,8 +52,8 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
     try {
       const { ciphertext, iv, salt } = await encryptDataWithWorker(newFileContent, passphrase);
       onAddVaultFile({
-        id: `vault-${Date.now()}`,
-        name: `${newFileName.trim()}.aes`,
+        id: 'vault-' + Date.now(),
+        name: newFileName.trim() + '.aes',
         originalName: newFileName.trim(),
         size: newFileContent.length,
         mimeType: 'text/plain',
@@ -82,7 +82,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
       setPreviewFile({ name: file.originalName || file.name, content: plainText });
       setErrorMsg('');
     } catch {
-      setErrorMsg('Decrypt failed — wrong passphrase or corrupt data');
+      setErrorMsg('Decrypt failed - wrong passphrase or corrupt data');
     } finally {
       setDecryptingId(null);
     }
@@ -96,8 +96,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
           <h2 className="font-bold text-sm">Privacy Vault</h2>
         </div>
         <p className="text-xs text-zinc-500">
-          Choose your own passphrase (min 8 chars). Nothing is hard-coded in the app.
-          Notes stay in this browser session only (no cloud vault sync yet).
+          Choose your own passphrase (min 8 chars). Session-only notes for this prototype.
         </p>
         <form onSubmit={handleUnlock} className="space-y-3">
           <div className="relative">
@@ -109,8 +108,7 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
               className="w-full px-3 py-2 pr-10 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm"
               autoComplete="off"
             />
-            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400"
-              onClick={() => setShowPassword(s => !s)}>
+            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400" onClick={() => setShowPassword(s => !s)}>
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
@@ -132,57 +130,43 @@ export const PrivacyVault: React.FC<PrivacyVaultProps> = ({
           <span className="text-[10px] text-zinc-500">{vaultFiles.length} items</span>
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={() => setIsAddingFile(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">
+          <button type="button" onClick={() => setIsAddingFile(true)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">
             <Plus className="w-3.5 h-3.5" /> Add note
           </button>
-          <button type="button" onClick={handleLock}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold">
+          <button type="button" onClick={handleLock} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold">
             <Lock className="w-3.5 h-3.5" /> Lock
           </button>
         </div>
       </div>
-
       {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
-
       {isAddingFile && (
         <form onSubmit={handleAddEncrypted} className="rounded-xl border p-4 space-y-2 bg-white dark:bg-zinc-900">
-          <input value={newFileName} onChange={e => setNewFileName(e.target.value)} placeholder="Title"
-            className="w-full px-3 py-2 rounded-lg border text-sm" required />
-          <textarea value={newFileContent} onChange={e => setNewFileContent(e.target.value)} placeholder="Secret text..."
-            className="w-full px-3 py-2 rounded-lg border text-sm min-h-[100px]" required />
-          <input value={newFileTags} onChange={e => setNewFileTags(e.target.value)} placeholder="tags, comma,separated"
-            className="w-full px-3 py-2 rounded-lg border text-sm" />
+          <input value={newFileName} onChange={e => setNewFileName(e.target.value)} placeholder="Title" className="w-full px-3 py-2 rounded-lg border text-sm" required />
+          <textarea value={newFileContent} onChange={e => setNewFileContent(e.target.value)} placeholder="Secret text..." className="w-full px-3 py-2 rounded-lg border text-sm min-h-[100px]" required />
+          <input value={newFileTags} onChange={e => setNewFileTags(e.target.value)} placeholder="tags" className="w-full px-3 py-2 rounded-lg border text-sm" />
           <div className="flex gap-2">
-            <button type="submit" disabled={encrypting}
-              className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50">
-              {encrypting ? 'Encrypting...' : 'Encrypt & save'}
+            <button type="submit" disabled={encrypting} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50">
+              {encrypting ? 'Encrypting...' : 'Encrypt and save'}
             </button>
             <button type="button" onClick={() => setIsAddingFile(false)} className="px-3 py-2 rounded-lg border text-xs">Cancel</button>
           </div>
         </form>
       )}
-
       <div className="space-y-2">
-        {vaultFiles.length === 0 && (
-          <p className="text-sm text-zinc-500 text-center py-8">No vault items yet. Add an encrypted note.</p>
-        )}
+        {vaultFiles.length === 0 && <p className="text-sm text-zinc-500 text-center py-8">No vault items yet.</p>}
         {vaultFiles.map(file => (
           <div key={file.id} className="flex items-center justify-between gap-2 rounded-xl border p-3 bg-white dark:bg-zinc-900">
             <div className="min-w-0">
               <div className="text-sm font-semibold truncate">{file.originalName || file.name}</div>
-              <div className="text-[10px] text-zinc-500">{file.tags?.join(', ')}</div>
+              <div className="text-[10px] text-zinc-500">{(file.tags || []).join(', ')}</div>
             </div>
             <div className="flex gap-1 shrink-0">
-              <button type="button" onClick={() => handleDecrypt(file)} disabled={decryptingId === file.id}
-                className="px-2 py-1 rounded-lg border text-xs">Decrypt</button>
-              <button type="button" onClick={() => onDeleteVaultFile(file.id)}
-                className="px-2 py-1 rounded-lg border text-xs text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button type="button" onClick={() => handleDecrypt(file)} disabled={decryptingId === file.id} className="px-2 py-1 rounded-lg border text-xs">Decrypt</button>
+              <button type="button" onClick={() => onDeleteVaultFile(file.id)} className="px-2 py-1 rounded-lg border text-xs text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </div>
         ))}
       </div>
-
       {previewFile && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-2xl max-w-lg w-full p-4 space-y-3">
