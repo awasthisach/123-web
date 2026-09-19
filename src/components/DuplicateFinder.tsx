@@ -22,8 +22,10 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
   };
 
   const handleSelectAllDuplicates = () => {
+    // Safety: bulk-select only SHA-256 confirmed groups — never size/name candidates
     const next = new Set<string>();
     duplicateGroups.forEach(group => {
+      if (!group.hash.startsWith('sha256:')) return;
       group.files.slice(1).forEach(f => next.add(f.id));
     });
     setSelectedDuplicates(next);
@@ -54,6 +56,7 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
               </div>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
                 Groups by SHA-256 when available, otherwise size + filename. Confirm before trash.
+                Bulk select only applies to SHA-256 confirmed groups.
               </p>
             </div>
           </div>
@@ -76,78 +79,64 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemov
             <div className="flex items-center gap-2 flex-wrap text-xs">
               <span className="font-semibold">{duplicateGroups.length} group(s)</span>
               <button type="button" onClick={handleSelectAllDuplicates} className="text-indigo-600 hover:underline font-medium">
-                Select non-primary
+                Select non-primary (SHA-256 only)
               </button>
               <button type="button" onClick={handleDeselectAll} className="text-zinc-500 hover:underline">
-                Deselect all
+                Clear selection
               </button>
             </div>
             <button
               type="button"
-              onClick={handleCleanSelected}
               disabled={selectedDuplicates.size === 0}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold disabled:opacity-40 min-h-[44px]"
+              onClick={handleCleanSelected}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 text-white text-xs font-bold disabled:opacity-40"
             >
-              <Trash2 className="w-4 h-4" />
-              Trash {selectedDuplicates.size} selected
+              <Trash2 className="w-3.5 h-3.5" />
+              Trash selected ({selectedDuplicates.size})
             </button>
           </div>
 
-          {duplicateGroups.map((group, gIdx) => (
-            <div key={group.hash} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-              <div className="px-4 py-3 bg-zinc-50 dark:bg-zinc-800/60 border-b text-xs flex flex-wrap gap-2 justify-between">
-                <span className="font-bold">
-                  Group #{gIdx + 1}{' '}
-                  <span className="font-normal text-zinc-500">
-                    {group.hash.startsWith('sha256:') ? 'confirmed SHA-256' : 'candidate'}
+          {duplicateGroups.map(group => {
+            const confirmed = group.hash.startsWith('sha256:');
+            return (
+              <div
+                key={group.hash}
+                className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden"
+              >
+                <div className="px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2 text-xs">
+                  <span className={`font-bold ${confirmed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {confirmed ? 'confirmed SHA-256' : 'candidate (size + name)'}
                   </span>
-                </span>
-                <span className="text-emerald-600 font-semibold">Save up to {formatBytes(group.reclaimableSize)}</span>
-              </div>
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
-                {group.files.map((file, idx) => {
-                  const isSelected = selectedDuplicates.has(file.id);
-                  const isOriginal = idx === 0;
-                  return (
-                    <div
-                      key={file.id}
-                      className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                        isSelected ? 'bg-rose-50/40 dark:bg-rose-950/20' : isOriginal ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleSelect(file.id)}
-                          className={`w-5 h-5 rounded-md border flex items-center justify-center ${
-                            isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'border-zinc-300 dark:border-zinc-600'
-                          }`}
-                        >
-                          {isSelected && <Check className="w-3.5 h-3.5" />}
-                        </button>
-                        <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 flex items-center justify-center shrink-0">
-                          <FileText className="w-5 h-5" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold truncate">{file.name}</span>
-                            {isOriginal ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">Suggested keep</span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-100 text-zinc-600">Candidate #{idx}</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-zinc-400">
-                            {formatBytes(file.size)} • {new Date(file.modifiedTime).toLocaleDateString()}
-                          </p>
+                  <span className="text-zinc-500">{group.fileCount} files · reclaim ~{formatBytes(group.reclaimableSize)}</span>
+                </div>
+                <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {group.files.map((file, idx) => (
+                    <li key={file.id} className="flex items-center gap-3 px-4 py-3">
+                      <button type="button" onClick={() => toggleSelect(file.id)} className="shrink-0">
+                        {selectedDuplicates.has(file.id) ? (
+                          <Check className="w-4 h-4 text-indigo-600" />
+                        ) : (
+                          <span className="w-4 h-4 inline-block rounded border border-zinc-300 dark:border-zinc-600" />
+                        )}
+                      </button>
+                      <FileText className="w-4 h-4 text-zinc-400 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold truncate">{file.name}</div>
+                        <div className="text-[11px] text-zinc-500">
+                          {formatBytes(file.size)} · {new Date(file.modifiedTime).toLocaleDateString()}
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                      {idx === 0 && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+                          Primary (review)
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
