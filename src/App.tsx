@@ -235,7 +235,7 @@ export default function App() {
       try {
         await deleteGoogleDriveFile(token, id);
         setFiles(prev => prev.filter(f => f.id !== id));
-        showDriveToast(`Deleted "${fileToDelete.name}"`);
+        showDriveToast(`Moved to Drive trash: "${fileToDelete.name}"`);
       } catch (err: any) {
         console.error(err);
         showDriveToast(`Delete failed: ${err?.message || 'error'} — file kept`);
@@ -278,21 +278,23 @@ export default function App() {
     if (failed.length) {
       showDriveToast(`Delete partial: ${failed.length} failed (${failed.slice(0, 2).join(', ')})`);
     } else if (succeeded.length) {
-      showDriveToast(`Deleted ${succeeded.length} Drive file(s)`);
+      showDriveToast(`Moved ${succeeded.length} file(s) to Drive trash`);
     }
   };
 
   const handleCreateFolder = async (newFolder: FolderItem) => {
-    setFolders(prev => [...prev, newFolder]);
     const token = googleAccessToken || (await getAccessToken());
     if (token && isGoogleConnected) {
       try {
         const created = await createGoogleDriveFolder(token, newFolder.name);
-        setFolders(prev => prev.map(fd => (fd.id === newFolder.id ? { ...fd, id: created.id } : fd)));
-      } catch (err) {
+        setFolders(prev => [...prev, { ...newFolder, id: created.id }]);
+        showDriveToast(`Folder "${newFolder.name}" created`);
+      } catch (err: any) {
         console.error(err);
-        showDriveToast('Folder create failed on Drive');
+        showDriveToast(`Folder create failed: ${err?.message || 'error'}`);
       }
+    } else {
+      setFolders(prev => [...prev, newFolder]);
     }
   };
 
@@ -416,7 +418,7 @@ export default function App() {
       )}
       {previewFile && (
         <React.Suspense fallback={null}>
-          <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+          <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} onToggleOffline={handleToggleOffline} />
         </React.Suspense>
       )}
       {searchMoveTargetFile && (
