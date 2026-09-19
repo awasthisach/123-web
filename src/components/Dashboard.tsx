@@ -32,6 +32,7 @@ interface DashboardProps {
   onSyncGoogleDrive?: (fileType?: DriveFileTypeFilter) => void;
   driveFileTypeFilter?: DriveFileTypeFilter;
   onDriveFileTypeChange?: (fileType: DriveFileTypeFilter) => void;
+  driveTruncated?: boolean;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -39,7 +40,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onMoveFilesToFolder, onCreateFolder, onToggleStar, onToggleOffline, onSelectTab,
   onSelectPreviewFile, isGoogleConnected = false, isGoogleLoading = false,
   googleUserEmail = '', onConnectGoogleDrive, onConnectDemoDrive, onSyncGoogleDrive,
-  driveFileTypeFilter = 'all', onDriveFileTypeChange,
+  driveFileTypeFilter = 'all', onDriveFileTypeChange, driveTruncated = false,
 }) => {
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -143,6 +144,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-0.5">
                 {googleUserEmail || 'Signed in'} • {files.filter(f => f.isGoogleDriveItem).length} Drive files
               </p>
+              {driveTruncated && (
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 font-medium">
+                  List may be incomplete (sync capped at ~10k). Use type filters to narrow.
+                </p>
+              )}
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
