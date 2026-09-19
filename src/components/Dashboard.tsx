@@ -1,1 +1,271 @@
-DASHBOARD_CONTENT_PLACEHOLDER
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  Folder, FolderPlus, HardDrive, UploadCloud, FileText, Image as ImageIcon,
+  Table, Archive, Star, Trash2, LayoutGrid, List, Eye, CheckCircle2, Cloud,
+  X, Plus, CheckSquare, Square, Search, RefreshCw,
+} from 'lucide-react';
+import { DriveFile, FileCategory, VaultFile, FolderItem } from '../types';
+import { formatBytes } from '../lib/driveApi';
+import { DriveFileTypeFilter } from '../lib/googleDriveService';
+import { FileTypeSelector } from './FileTypeSelector';
+import { MoveToFolderModal } from './MoveToFolderModal';
+import { DeleteConfirmModal } from './DeleteConfirmModal';
+
+interface DashboardProps {
+  files: DriveFile[];
+  folders: FolderItem[];
+  vaultFiles: VaultFile[];
+  onUploadFile: (newFile: DriveFile) => void;
+  onDeleteFile: (id: string) => void;
+  onDeleteMultipleFiles: (ids: string[]) => void;
+  onMoveFilesToFolder: (fileIds: string[], targetFolderId: string | undefined) => void;
+  onCreateFolder: (newFolder: FolderItem) => void;
+  onToggleStar: (id: string) => void;
+  onToggleOffline: (id: string) => void;
+  onSelectTab: (tab: string) => void;
+  onSelectPreviewFile: (file: DriveFile) => void;
+  isGoogleConnected?: boolean;
+  isGoogleLoading?: boolean;
+  googleUserEmail?: string;
+  onConnectGoogleDrive?: () => void;
+  onConnectDemoDrive?: () => void;
+  onSyncGoogleDrive?: (fileType?: DriveFileTypeFilter) => void;
+  driveFileTypeFilter?: DriveFileTypeFilter;
+  onDriveFileTypeChange?: (fileType: DriveFileTypeFilter) => void;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({
+  files, folders, vaultFiles, onUploadFile, onDeleteFile, onDeleteMultipleFiles,
+  onMoveFilesToFolder, onCreateFolder, onToggleStar, onToggleOffline, onSelectTab,
+  onSelectPreviewFile, isGoogleConnected = false, isGoogleLoading = false,
+  googleUserEmail = '', onConnectGoogleDrive, onConnectDemoDrive, onSyncGoogleDrive,
+  driveFileTypeFilter = 'all', onDriveFileTypeChange,
+}) => {
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [moveTargetFiles, setMoveTargetFiles] = useState<DriveFile[]>([]);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteTargetFiles, setDeleteTargetFiles] = useState<DriveFile[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const filteredFiles = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return files.filter(file => {
+      if (filterCategory === 'starred' && !file.starred) return false;
+      if (filterCategory === 'google_drive' && !file.isGoogleDriveItem) return false;
+      if (filterCategory !== 'all' && filterCategory !== 'starred' && filterCategory !== 'google_drive') {
+        if (file.category !== filterCategory) return false;
+      }
+      if (q) {
+        return (
+          file.name.toLowerCase().includes(q) ||
+          file.tags.some(t => t.toLowerCase().includes(q)) ||
+          (file.semanticSummary || '').toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [files, filterCategory, searchTerm]);
+
+  const selectedFilesList = useMemo(() => files.filter(f => selectedFileIds.has(f.id)), [files, selectedFileIds]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploaded = e.target.files?.[0];
+    if (!uploaded) return;
+    let cat: FileCategory = 'document';
+    if (uploaded.type.startsWith('image/')) cat = 'image';
+    else if (uploaded.type.includes('sheet') || uploaded.name.endsWith('.xlsx')) cat = 'spreadsheet';
+    else if (uploaded.type.includes('zip')) cat = 'archive';
+    onUploadFile({
+      id: `file-${Date.now()}`,
+      name: uploaded.name,
+      mimeType: uploaded.type || 'application/octet-stream',
+      size: uploaded.size || 1024000,
+      modifiedTime: new Date().toISOString(),
+      createdTime: new Date().toISOString(),
+      category: cat,
+      isOffline: true,
+      isEncrypted: false,
+      contentHash: `user-${Date.now()}-${uploaded.size}`,
+      tags: ['upload', 'local', cat],
+      semanticSummary: `User-uploaded: ${uploaded.name}`,
+      starred: false,
+    });
+    e.target.value = '';
+    showToast(`"${uploaded.name}" uploaded`);
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedFileIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {toastMessage && (
+        <div className="fixed top-20 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-zinc-900 text-zinc-100 shadow-2xl text-xs font-semibold">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+          <button type="button" onClick={() => setToastMessage(null)}><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+
+      {isGoogleConnected ? (
+        <div className="rounded-2xl p-4 bg-gradient-to-r from-blue-50 to-indigo-50/70 dark:from-blue-950/30 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-900/40 flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-600 text-white"><Cloud className="w-5 h-5" /></div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold">Google Drive Live Sync</span>
+                <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  Connected
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-0.5">
+                {googleUserEmail} • {files.filter(f => f.isGoogleDriveItem).length} Drive files
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {onDriveFileTypeChange && (
+              <FileTypeSelector value={driveFileTypeFilter} onChange={onDriveFileTypeChange} disabled={isGoogleLoading} />
+            )}
+            {onSyncGoogleDrive && (
+              <button
+                type="button"
+                onClick={() => onSyncGoogleDrive(driveFileTypeFilter)}
+                disabled={isGoogleLoading}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-semibold disabled:opacity-50 min-h-[38px]"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isGoogleLoading ? 'animate-spin text-blue-500' : ''}`} />
+                <span>{isGoogleLoading ? 'Syncing...' : 'Sync Now'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl p-4 bg-gradient-to-r from-blue-50/70 to-zinc-50 dark:from-blue-950/20 dark:to-zinc-900 border border-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-bold">Connect Google Drive</h4>
+            <p className="text-[11px] text-zinc-600 dark:text-zinc-400">Sign in to sync and search your Drive files.</p>
+          </div>
+          <div className="flex gap-2">
+            {onConnectGoogleDrive && (
+              <button type="button" onClick={onConnectGoogleDrive} disabled={isGoogleLoading}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold min-h-[40px]">
+                {isGoogleLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+                Sign in with Google
+              </button>
+            )}
+            {onConnectDemoDrive && (
+              <button type="button" onClick={onConnectDemoDrive}
+                className="px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-xs font-semibold min-h-[40px]">
+                Demo Drive
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[160px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+          <input
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="Search files..."
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm"
+          />
+        </div>
+        <select
+          value={filterCategory}
+          onChange={e => setFilterCategory(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-semibold"
+        >
+          <option value="all">All types</option>
+          <option value="document">Documents</option>
+          <option value="image">Images</option>
+          <option value="spreadsheet">Spreadsheets</option>
+          <option value="starred">Starred</option>
+          <option value="google_drive">Google Drive</option>
+        </select>
+        <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold cursor-pointer">
+          <UploadCloud className="w-3.5 h-3.5" />
+          Upload
+          <input type="file" className="hidden" onChange={handleFileUpload} />
+        </label>
+      </div>
+
+      {selectedFilesList.length > 0 && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-semibold">{selectedFilesList.length} selected</span>
+          <button type="button" className="px-2 py-1 rounded-lg border" onClick={() => { setMoveTargetFiles(selectedFilesList); setIsMoveModalOpen(true); }}>Move</button>
+          <button type="button" className="px-2 py-1 rounded-lg border text-red-600" onClick={() => { setDeleteTargetFiles(selectedFilesList); setIsDeleteModalOpen(true); }}>Delete</button>
+          <button type="button" className="px-2 py-1 rounded-lg border" onClick={() => setSelectedFileIds(new Set())}>Clear</button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {filteredFiles.map(file => (
+          <div
+            key={file.id}
+            className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 hover:border-blue-400 transition cursor-pointer"
+            onClick={() => onSelectPreviewFile(file)}
+          >
+            <div className="flex items-start gap-2">
+              <button type="button" onClick={e => { e.stopPropagation(); toggleSelect(file.id); }} className="mt-0.5">
+                {selectedFileIds.has(file.id) ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4 text-zinc-400" />}
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold truncate">{file.name}</div>
+                <div className="text-[11px] text-zinc-500 mt-0.5">{formatBytes(file.size)} • {file.category}</div>
+                {file.isGoogleDriveItem && <span className="text-[10px] text-blue-600 font-semibold">Drive</span>}
+              </div>
+              <button type="button" onClick={e => { e.stopPropagation(); onToggleStar(file.id); }}>
+                <Star className={`w-4 h-4 ${file.starred ? 'text-amber-500 fill-amber-500' : 'text-zinc-400'}`} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {filteredFiles.length === 0 && (
+        <div className="text-center py-12 text-sm text-zinc-500">No files found. Connect Drive and Sync.</div>
+      )}
+
+      <MoveToFolderModal
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        folders={folders}
+        onConfirm={(folderId) => {
+          onMoveFilesToFolder(moveTargetFiles.map(f => f.id), folderId);
+          setIsMoveModalOpen(false);
+          setSelectedFileIds(new Set());
+          showToast('Files moved');
+        }}
+      />
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        filesToDelete={deleteTargetFiles}
+        onConfirmDelete={() => {
+          onDeleteMultipleFiles(deleteTargetFiles.map(f => f.id));
+          setIsDeleteModalOpen(false);
+          setSelectedFileIds(new Set());
+          showToast('Files deleted');
+        }}
+      />
+    </div>
+  );
+};
