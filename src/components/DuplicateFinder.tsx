@@ -1,11 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Copy,
-  Trash2,
-  CheckCircle,
-  Check,
-  FileText,
-} from 'lucide-react';
+import { Copy, Trash2, CheckCircle, Check, FileText } from 'lucide-react';
 import { DriveFile } from '../types';
 import { findDuplicates } from '../lib/duplicateEngine';
 import { formatBytes } from '../lib/driveApi';
@@ -15,19 +9,10 @@ interface DuplicateFinderProps {
   onRemoveFiles: (ids: string[]) => void;
 }
 
-export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
-  files,
-  onRemoveFiles,
-}) => {
-  // No auto-select — user must choose what to remove
+export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({ files, onRemoveFiles }) => {
   const [selectedDuplicates, setSelectedDuplicates] = useState<Set<string>>(() => new Set());
-
   const duplicateGroups = findDuplicates(files);
-
-  const totalReclaimable = duplicateGroups.reduce(
-    (acc, group) => acc + group.reclaimableSize,
-    0
-  );
+  const totalReclaimable = duplicateGroups.reduce((acc, group) => acc + group.reclaimableSize, 0);
 
   const toggleSelect = (id: string) => {
     const next = new Set(selectedDuplicates);
@@ -64,12 +49,11 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg sm:text-xl font-bold tracking-tight">Duplicate Candidate Cleaner</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Candidate key (id+size — not content SHA-256)
+                  Size/name · sha256 when offline-pinned
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-                Groups files that share the same size+id-derived key. Not a cryptographic content hash.
-                Select carefully — removal moves Drive files to trash.
+                Groups by SHA-256 when available, otherwise size + filename. Confirm before trash.
               </p>
             </div>
           </div>
@@ -84,7 +68,7 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
         <div className="text-center py-12 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800">
           <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
           <h3 className="text-base font-bold">No candidate groups</h3>
-          <p className="text-xs text-zinc-500 mt-1">No size-based candidate groups in the current file list.</p>
+          <p className="text-xs text-zinc-500 mt-1">Pin files offline to enable SHA-256 confirmed groups.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -112,7 +96,12 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
           {duplicateGroups.map((group, gIdx) => (
             <div key={group.hash} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
               <div className="px-4 py-3 bg-zinc-50 dark:bg-zinc-800/60 border-b text-xs flex flex-wrap gap-2 justify-between">
-                <span className="font-bold">Group #{gIdx + 1}</span>
+                <span className="font-bold">
+                  Group #{gIdx + 1}{' '}
+                  <span className="font-normal text-zinc-500">
+                    {group.hash.startsWith('sha256:') ? 'confirmed SHA-256' : 'candidate'}
+                  </span>
+                </span>
                 <span className="text-emerald-600 font-semibold">Save up to {formatBytes(group.reclaimableSize)}</span>
               </div>
               <div className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
@@ -120,14 +109,20 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
                   const isSelected = selectedDuplicates.has(file.id);
                   const isOriginal = idx === 0;
                   return (
-                    <div key={file.id} className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                      isSelected ? 'bg-rose-50/40 dark:bg-rose-950/20' : isOriginal ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''
-                    }`}>
+                    <div
+                      key={file.id}
+                      className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        isSelected ? 'bg-rose-50/40 dark:bg-rose-950/20' : isOriginal ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''
+                      }`}
+                    >
                       <div className="flex items-center gap-3 min-w-0">
-                        <button type="button" onClick={() => toggleSelect(file.id)}
+                        <button
+                          type="button"
+                          onClick={() => toggleSelect(file.id)}
                           className={`w-5 h-5 rounded-md border flex items-center justify-center ${
                             isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'border-zinc-300 dark:border-zinc-600'
-                          }`}>
+                          }`}
+                        >
                           {isSelected && <Check className="w-3.5 h-3.5" />}
                         </button>
                         <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 flex items-center justify-center shrink-0">
@@ -142,7 +137,9 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
                               <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-100 text-zinc-600">Candidate #{idx}</span>
                             )}
                           </div>
-                          <p className="text-[11px] text-zinc-400">{formatBytes(file.size)} • {new Date(file.modifiedTime).toLocaleDateString()}</p>
+                          <p className="text-[11px] text-zinc-400">
+                            {formatBytes(file.size)} • {new Date(file.modifiedTime).toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
                     </div>
