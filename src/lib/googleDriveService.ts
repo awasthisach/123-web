@@ -12,6 +12,41 @@ export interface DriveFetchResult {
 
 export type DriveFileTypeFilter = 'all' | 'documents' | 'images' | 'videos' | 'spreadsheets' | 'pdfs' | 'folders';
 
+/** Drive list corpus — My Drive, all drives, or a specific Shared Drive */
+export type DriveCorpus = 'user' | 'allDrives' | 'drive';
+
+export interface SharedDriveInfo {
+  id: string;
+  name: string;
+}
+
+export async function listSharedDrives(accessToken: string): Promise<SharedDriveInfo[]> {
+  const drives: SharedDriveInfo[] = [];
+  let pageToken: string | undefined;
+  for (let i = 0; i < 10; i++) {
+    const params = new URLSearchParams({
+      pageSize: '50',
+      fields: 'nextPageToken,drives(id,name)',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/drives?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `List shared drives failed: ${res.status}`);
+    }
+    const data = await res.json();
+    for (const d of data.drives || []) {
+      drives.push({ id: d.id, name: d.name });
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+  return drives;
+}
+
 function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
   const base = 'trashed=false';
   switch (fileType) {
@@ -35,7 +70,9 @@ function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
 export async function fetchGoogleDriveData(
   accessToken: string,
   fileType: DriveFileTypeFilter = 'all',
-  maxPages: number = 20
+  maxPages: number = 20,
+  corpus: DriveCorpus = 'user',
+  driveId?: string
 ): Promise<DriveFetchResult> {
   const fields = 'files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink,webViewLink,iconLink,parents,trashed,description,starred),nextPageToken';
   const query = buildDriveQuery(fileType);
@@ -50,8 +87,17 @@ export async function fetchGoogleDriveData(
       q: query,
       orderBy: 'modifiedTime desc',
       supportsAllDrives: 'true',
-      includeItemsFromAllDrives: 'true',
     });
+    if (corpus === 'allDrives') {
+      params.set('corpora', 'allDrives');
+      params.set('includeItemsFromAllDrives', 'true');
+    } else if (corpus === 'drive' && driveId) {
+      params.set('corpora', 'drive');
+      params.set('driveId', driveId);
+      params.set('includeItemsFromAllDrives', 'true');
+    } else {
+      params.set('corpora', 'user');
+    }
     if (pageToken) params.set('pageToken', pageToken);
 
     const response = await fetch(
