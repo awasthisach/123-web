@@ -16,9 +16,8 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "strict": false,
     "esModuleInterop": true,
-    "types": ["vite/client", "vite-plugin-pwa/client"]
+    "strict": false
   },
   "include": ["src"]
 }
