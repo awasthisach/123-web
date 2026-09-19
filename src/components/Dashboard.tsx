@@ -1,8 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Folder, FolderPlus, HardDrive, UploadCloud, FileText, Image as ImageIcon,
-  Table, Archive, Star, Trash2, LayoutGrid, List, Eye, CheckCircle2, Cloud,
-  X, Plus, CheckSquare, Square, Search, RefreshCw,
+  UploadCloud, Star, CheckCircle2, Cloud,
+  X, CheckSquare, Square, Search, RefreshCw,
 } from 'lucide-react';
 import { DriveFile, FileCategory, VaultFile, FolderItem } from '../types';
 import { formatBytes } from '../lib/driveApi';
@@ -41,7 +40,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   googleUserEmail = '', onConnectGoogleDrive, onConnectDemoDrive, onSyncGoogleDrive,
   driveFileTypeFilter = 'all', onDriveFileTypeChange,
 }) => {
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
@@ -67,7 +65,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (q) {
         return (
           file.name.toLowerCase().includes(q) ||
-          file.tags.some(t => t.toLowerCase().includes(q)) ||
+          (file.tags || []).some(t => t.toLowerCase().includes(q)) ||
           (file.semanticSummary || '').toLowerCase().includes(q)
         );
       }
@@ -100,7 +98,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       starred: false,
     });
     e.target.value = '';
-    showToast(`"${uploaded.name}" uploaded`);
+    showToast(`\"${uploaded.name}\" uploaded`);
   };
 
   const toggleSelect = (id: string) => {
@@ -128,9 +126,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold">Google Drive Live Sync</span>
-                <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  Connected
-                </span>
+                <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Connected</span>
               </div>
               <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-0.5">
                 {googleUserEmail} • {files.filter(f => f.isGoogleDriveItem).length} Drive files
@@ -247,13 +243,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <MoveToFolderModal
         isOpen={isMoveModalOpen}
         onClose={() => setIsMoveModalOpen(false)}
+        selectedFiles={moveTargetFiles}
         folders={folders}
-        onConfirm={(folderId) => {
+        allFiles={files}
+        onConfirmMove={(folderId) => {
           onMoveFilesToFolder(moveTargetFiles.map(f => f.id), folderId);
           setIsMoveModalOpen(false);
           setSelectedFileIds(new Set());
           showToast('Files moved');
         }}
+        onCreateFolder={onCreateFolder}
       />
       <DeleteConfirmModal
         isOpen={isDeleteModalOpen}
