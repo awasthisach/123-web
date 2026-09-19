@@ -191,7 +191,7 @@ export async function createGoogleDriveFolder(
   return response.json();
 }
 
-/** Move file to Google Drive trash (recoverable). Not permanent delete. */
+/** Move file to Google Drive trash (recoverable). */
 export async function deleteGoogleDriveFile(
   accessToken: string,
   fileId: string
@@ -212,4 +212,82 @@ export async function deleteGoogleDriveFile(
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData?.error?.message || `Failed to trash file: ${response.status}`);
   }
+}
+
+/** Upload a browser File to Google Drive via multipart. */
+export async function uploadGoogleDriveFile(
+  accessToken: string,
+  file: File,
+  parentFolderId?: string
+): Promise<DriveFile> {
+  const metadata: Record<string, unknown> = {
+    name: file.name,
+    mimeType: file.type || 'application/octet-stream',
+  };
+  if (parentFolderId && parentFolderId !== 'root') {
+    metadata.parents = [parentFolderId];
+  }
+
+  const boundary = '-------driveBoundary' + Date.now();
+  const delimiter = '\r\n--' + boundary + '\r\n';
+  const closeDelim = '\r\n--' + boundary + '--';
+
+  const metaPart =
+    delimiter +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata);
+
+  const fileHeader =
+    delimiter +
+    'Content-Type: ' + (file.type || 'application/octet-stream') + '\r\n\r\n';
+
+  const body = new Blob([
+    new Blob([metaPart]),
+    new Blob([fileHeader]),
+    file,
+    new Blob([closeDelim]),
+  ]);
+
+  const response = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,modifiedTime,createdTime,webViewLink,iconLink,parents,thumbnailLink&supportsAllDrives=true',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + accessToken,
+        'Content-Type': 'multipart/related; boundary=' + boundary,
+      },
+      body,
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData?.error?.message || 'Upload failed: ' + response.status);
+  }
+
+  const item = await response.json();
+  const category = getCategoryFromMime(item.mimeType || file.type || '', item.name || file.name);
+  const primaryParent = item.parents && item.parents.length > 0 ? item.parents[0] : undefined;
+
+  return {
+    id: item.id,
+    name: item.name,
+    mimeType: item.mimeType || file.type || 'application/octet-stream',
+    size: item.size ? parseInt(item.size, 10) : file.size,
+    modifiedTime: item.modifiedTime || new Date().toISOString(),
+    createdTime: item.createdTime || new Date().toISOString(),
+    category,
+    folderId: primaryParent,
+    thumbnailUrl: item.thumbnailLink,
+    webViewLink: item.webViewLink,
+    iconLink: item.iconLink,
+    parentIds: item.parents || [],
+    isGoogleDriveItem: true,
+    isOffline: false,
+    isEncrypted: false,
+    contentHash: 'gdrive-' + item.id + '-' + (item.size || file.size),
+    tags: ['google-drive', 'uploaded', category],
+    semanticSummary: 'Uploaded to Google Drive: ' + item.name,
+    starred: false,
+  };
 }
