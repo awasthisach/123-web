@@ -27,6 +27,7 @@ import {
   sha256Blob,
   listOfflineMeta,
 } from './lib/offlineCache';
+import { withDriveAuthRetry } from './lib/driveAuth';
 
 const DeviceStorageScanner = React.lazy(() =>
   import('./components/DeviceStorageScanner').then(m => ({ default: m.DeviceStorageScanner }))
@@ -139,7 +140,17 @@ export default function App() {
             console.warn('Shared drives list skipped:', e);
             setSharedDrives([]);
           }
-          const driveData = await fetchGoogleDriveData(token, 'all', 20, 'user');
+          const savedCorpus = (sessionStorage.getItem('drive_corpus') as DriveCorpus) || 'user';
+          const savedDriveId = sessionStorage.getItem('drive_shared_id') || undefined;
+          setDriveCorpus(savedCorpus);
+          if (savedDriveId) setSharedDriveId(savedDriveId);
+          const driveData = await fetchGoogleDriveData(
+            token,
+            'all',
+            20,
+            savedCorpus === 'drive' && savedDriveId ? 'drive' : savedCorpus === 'allDrives' ? 'allDrives' : 'user',
+            savedDriveId
+          );
           setDriveTruncated(Boolean(driveData.truncated));
           if (driveData.files.length > 0 || driveData.folders.length > 0) {
             setFiles(prev => {
@@ -352,7 +363,11 @@ export default function App() {
         return;
       }
       try {
-        await deleteGoogleDriveFile(token, id);
+        await withDriveAuthRetry(
+          async () => (await ensureValidToken()) || googleAccessToken || (await getAccessToken()),
+          t => setGoogleAccessToken(t),
+          tok => deleteGoogleDriveFile(tok, id)
+        );
         setFiles(prev => prev.filter(f => f.id !== id));
         showDriveToast('Moved to Drive trash: "' + fileToDelete.name + '"');
       } catch (err: any) {
@@ -383,7 +398,11 @@ export default function App() {
     const failed: string[] = [];
     for (const f of driveItems) {
       try {
-        await deleteGoogleDriveFile(token, f.id);
+        await withDriveAuthRetry(
+          async () => (await ensureValidToken()) || googleAccessToken || (await getAccessToken()),
+          t => setGoogleAccessToken(t),
+          tok => deleteGoogleDriveFile(tok, f.id)
+        );
         succeeded.push(f.id);
       } catch (err) {
         console.error(err);
@@ -473,9 +492,13 @@ export default function App() {
     if (!file) return;
 
     if (file.isOffline) {
-      setFiles(prev => prev.map(f => (f.id === id ? { ...f, isOffline: false } : f)));
-      await removeOfflineBlob(id);
-      showDriveToast('Unpinned from offline cache');
+      try {
+        await removeOfflineBlob(id);
+        setFiles(prev => prev.map(f => (f.id === id ? { ...f, isOffline: false } : f)));
+        showDriveToast('Unpinned from offline cache');
+      } catch (e: any) {
+        showDriveToast('Unpin failed — still marked offline: ' + (e?.message || 'error'));
+      }
       return;
     }
 
@@ -607,6 +630,11 @@ export default function App() {
             onDriveCorpusChange={(c, id) => {
               setDriveCorpus(c);
               setSharedDriveId(id || '');
+              try {
+                sessionStorage.setItem('drive_corpus', c);
+                if (id) sessionStorage.setItem('drive_shared_id', id);
+                else sessionStorage.removeItem('drive_shared_id');
+              } catch { /* ignore */ }
               handleSyncGoogleDrive(driveFileTypeFilter, c, id || '');
             }}
             onDriveFileTypeChange={t => { setDriveFileTypeFilter(t); handleSyncGoogleDrive(t); }}
