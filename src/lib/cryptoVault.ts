@@ -1,6 +1,7 @@
 /**
  * Client-side vault crypto
- * Uses Web Crypto API: PBKDF2 (SHA-256, 310,000 iterations) -> AES-GCM (256-bit)
+ * PBKDF2-SHA-256 (310,000 iterations) -> AES-GCM-256
+ * Prefer Web Worker (cryptoWorker.ts); fall back to main thread.
  */
 
 function bufToBase64(buf: ArrayBuffer | Uint8Array): string {
@@ -17,6 +18,8 @@ function base64ToBuf(b64: string): Uint8Array {
   return bytes;
 }
 
+const PBKDF2_ITERATIONS = 310000;
+
 export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -30,8 +33,8 @@ export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<C
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
-      iterations: 310000,
+      salt: salt as BufferSource,
+      iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
     keyMaterial,
@@ -50,7 +53,7 @@ export async function encryptData(
   const key = await deriveKey(passphrase, salt);
   const enc = new TextEncoder();
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
     enc.encode(plainText)
   );
@@ -69,24 +72,76 @@ export async function decryptData(
 ): Promise<string> {
   const key = await deriveKey(passphrase, base64ToBuf(salt));
   const plainBuf = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBuf(iv) },
+    { name: 'AES-GCM', iv: base64ToBuf(iv) as BufferSource },
     key,
-    base64ToBuf(ciphertext)
+    base64ToBuf(ciphertext) as BufferSource
   );
   return new TextDecoder().decode(plainBuf);
 }
 
+type WorkerResult = { ciphertext: string; iv: string; salt: string };
+
+let workerInstance: Worker | null = null;
+let workerBroken = false;
+let msgId = 0;
+
+function getCryptoWorker(): Worker | null {
+  if (workerBroken || typeof Worker === 'undefined') return null;
+  if (workerInstance) return workerInstance;
+  try {
+    workerInstance = new Worker(new URL('./cryptoWorker.ts', import.meta.url), {
+      type: 'module',
+    });
+    workerInstance.onerror = () => {
+      workerBroken = true;
+      workerInstance = null;
+    };
+    return workerInstance;
+  } catch {
+    workerBroken = true;
+    return null;
+  }
+}
+
+function workerCall<T>(type: 'encrypt' | 'decrypt', payload: Record<string, unknown>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const w = getCryptoWorker();
+    if (!w) {
+      reject(new Error('Worker unavailable'));
+      return;
+    }
+    const id = 'c' + ++msgId;
+    const timer = setTimeout(() => {
+      w.removeEventListener('message', onMsg);
+      reject(new Error('Worker timeout'));
+    }, 60000);
+
+    function onMsg(e: MessageEvent) {
+      if (!e.data || e.data.id !== id) return;
+      clearTimeout(timer);
+      w.removeEventListener('message', onMsg);
+      if (e.data.success) resolve(e.data.result as T);
+      else reject(new Error(e.data.error || 'Worker crypto failed'));
+    }
+
+    w.addEventListener('message', onMsg);
+    w.postMessage({ id, type, payload });
+  });
+}
+
+/** Encrypt via Worker when available; otherwise main-thread Web Crypto. */
 export async function encryptDataWithWorker(
   plainText: string,
   passphrase: string
 ): Promise<{ ciphertext: string; iv: string; salt: string }> {
   try {
+    return await workerCall<WorkerResult>('encrypt', { plainText, passphrase });
+  } catch {
     return encryptData(plainText, passphrase);
-  } catch (e) {
-    throw e;
   }
 }
 
+/** Decrypt via Worker when available; otherwise main-thread Web Crypto. */
 export async function decryptDataWithWorker(
   ciphertext: string,
   iv: string,
@@ -94,8 +149,8 @@ export async function decryptDataWithWorker(
   passphrase: string
 ): Promise<string> {
   try {
+    return await workerCall<string>('decrypt', { ciphertext, iv, salt, passphrase });
+  } catch {
     return decryptData(ciphertext, iv, salt, passphrase);
-  } catch (e) {
-    throw e;
   }
 }

@@ -1,6 +1,5 @@
 /**
- * Web Worker for Offloaded AES-256-GCM & PBKDF2 Zero-Knowledge Operations
- * Keeps the main UI thread 100% responsive during intensive 100,000-iteration key derivations.
+ * Web Worker for AES-256-GCM & PBKDF2 (310,000 iterations).
  */
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -36,7 +35,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
     {
       name: 'PBKDF2',
       salt: salt as BufferSource,
-      iterations: 100000,
+      iterations: 310000,
       hash: 'SHA-256',
     },
     keyMaterial,
@@ -59,10 +58,7 @@ self.onmessage = async (e: MessageEvent) => {
       const key = await deriveKey(passphrase, salt);
 
       const encryptedBuffer = await crypto.subtle.encrypt(
-        {
-          name: 'AES-GCM',
-          iv: iv as BufferSource,
-        },
+        { name: 'AES-GCM', iv: iv as BufferSource },
         key,
         data
       );
@@ -84,35 +80,18 @@ self.onmessage = async (e: MessageEvent) => {
       const key = await deriveKey(passphrase, saltBuf);
 
       const decryptedBuffer = await crypto.subtle.decrypt(
-        {
-          name: 'AES-GCM',
-          iv: ivBuf as BufferSource,
-        },
+        { name: 'AES-GCM', iv: ivBuf as BufferSource },
         key,
         cipherBuf
       );
 
-      const dec = new TextDecoder();
       self.postMessage({
         id,
         success: true,
-        result: dec.decode(decryptedBuffer),
-      });
-    } else if (type === 'hash') {
-      const { content } = payload;
-      const enc = new TextEncoder();
-      const data = enc.encode(content);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-      self.postMessage({
-        id,
-        success: true,
-        result: hashHex,
+        result: new TextDecoder().decode(decryptedBuffer),
       });
     } else {
-      throw new Error(`Unknown worker task type: ${type}`);
+      throw new Error('Unknown worker task type: ' + type);
     }
   } catch (err: any) {
     self.postMessage({
