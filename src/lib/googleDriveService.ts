@@ -45,7 +45,7 @@ export async function fetchGoogleDriveData(
 ): Promise<DriveFetchResult> {
   const fields = 'files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink,webViewLink,iconLink,parents,trashed,description,starred),nextPageToken';
   const query = buildDriveQuery(fileType);
-  const url = `https://www.googleapis.com/drive/v3/files?pageSize=500&fields=${encodeURIComponent(fields)}&q=${encodeURIComponent(query)}&orderBy=modifiedTime desc`;
+  const url = `https://www.googleapis.com/drive/v3/files?pageSize=500&fields=${encodeURIComponent(fields)}&q=${encodeURIComponent(query)}&orderBy=${encodeURIComponent('modifiedTime desc')}`;
 
   const response = await fetch(url, {
     method: 'GET',
@@ -118,86 +118,83 @@ export async function moveGoogleDriveFile(
   fileId: string,
   newFolderId: string,
   currentParentIds: string[] = []
-): Promise<boolean> {
+): Promise<void> {
+  let previousParents = currentParentIds.join(',');
+
+  if (!previousParents) {
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (metaRes.ok) {
+      const meta = await metaRes.json();
+      previousParents = (meta.parents || []).join(',');
+    }
+  }
+
   const params = new URLSearchParams();
   if (newFolderId && newFolderId !== 'root') {
-    params.append('addParents', newFolderId);
+    params.set('addParents', newFolderId);
   }
-  if (currentParentIds.length > 0) {
-    params.append('removeParents', currentParentIds.join(','));
+  if (previousParents) {
+    params.set('removeParents', previousParents);
   }
-  params.append('fields', 'id,parents');
+  params.set('fields', 'id,parents');
 
-  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params.toString()}`;
-
-  const response = await fetch(url, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({}),
-  });
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?${params.toString()}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData?.error?.message || `Failed to move file ${fileId}`);
+    throw new Error(errorData?.error?.message || `Failed to move file: ${response.status}`);
   }
-
-  return true;
 }
 
 /**
- * Create a new folder in Google Drive
+ * Create a folder in Google Drive
  */
 export async function createGoogleDriveFolder(
   accessToken: string,
-  folderName: string,
-  parentFolderId?: string
-): Promise<FolderItem> {
-  const url = 'https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,createdTime';
-  const body: any = {
-    name: folderName,
-    mimeType: 'application/vnd.google-apps.folder',
-  };
-  if (parentFolderId && parentFolderId !== 'root') {
-    body.parents = [parentFolderId];
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  name: string
+): Promise<{ id: string; name: string }> {
+  const response = await fetch('https://www.googleapis.com/drive/v3/files',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name,
+        mimeType: 'application/vnd.google-apps.folder',
+      }),
+    }
+  );
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData?.error?.message || 'Failed to create Google Drive folder');
+    throw new Error(errorData?.error?.message || `Failed to create folder: ${response.status}`);
   }
 
-  const data = await response.json();
-  return {
-    id: data.id,
-    name: data.name,
-    color: 'blue',
-    description: 'Created in Google Drive',
-    createdAt: data.createdTime,
-  };
+  return response.json();
 }
 
 /**
- * Delete a file in Google Drive permanently
+ * Delete a file from Google Drive
  */
 export async function deleteGoogleDriveFile(
   accessToken: string,
   fileId: string
-): Promise<boolean> {
-  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
-
-  const response = await fetch(url, {
+): Promise<void> {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -206,8 +203,6 @@ export async function deleteGoogleDriveFile(
 
   if (!response.ok && response.status !== 204) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData?.error?.message || `Failed to delete file ${fileId}`);
+    throw new Error(errorData?.error?.message || `Failed to delete file: ${response.status}`);
   }
-
-  return true;
 }

@@ -11,7 +11,6 @@ import {
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase App safely (singleton pattern)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
@@ -22,16 +21,13 @@ export const SCOPES = [
 ];
 
 const provider = new GoogleAuthProvider();
-// Register primary Google Drive Workspace scopes
 for (const scope of SCOPES) {
   provider.addScope(scope);
 }
-// Prompt user to select account and grant required permissions
 provider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// Cache access token in memory + sessionStorage (survives page refresh in same tab)
 const TOKEN_KEY = 'gdrive_access_token';
 let cachedAccessToken: string | null = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(TOKEN_KEY) : null);
 let isSigningIn = false;
@@ -43,14 +39,10 @@ function persistToken(token: string | null) {
     if (token) sessionStorage.setItem(TOKEN_KEY, token);
     else sessionStorage.removeItem(TOKEN_KEY);
   } catch {
-    // ignore quota / private mode errors
+    // ignore
   }
 }
 
-/**
- * Request OAuth Access Token using Google Identity Services (GSI)
- * This runs client-side without relying on Firebase authDomain redirection proxy.
- */
 export const requestGsiToken = async (clientId: string): Promise<{ user: Partial<User>; accessToken: string }> => {
   return new Promise((resolve, reject) => {
     if (typeof window === 'undefined') {
@@ -79,7 +71,6 @@ export const requestGsiToken = async (clientId: string): Promise<{ user: Partial
             return;
           }
 
-          // Fetch user info with Google UserInfo endpoint
           try {
             const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
               headers: { Authorization: `Bearer ${accessToken}` },
@@ -111,21 +102,18 @@ export const requestGsiToken = async (clientId: string): Promise<{ user: Partial
         },
       });
 
-      tokenClient.requestAccessToken({ prompt: 'consent' });
+      // Empty prompt = reuse existing grant when possible (better on mobile)
+      tokenClient.requestAccessToken({ prompt: '' });
     } catch (err: any) {
       reject(err);
     }
   });
 };
 
-/**
- * Initialize auth state listener. Call this on app load.
- */
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  // First, check if there's a pending redirect result (e.g. from mobile fallback)
   getRedirectResult(auth)
     .then((result) => {
       if (result) {
@@ -154,9 +142,6 @@ export const initAuth = (
   });
 };
 
-/**
- * Ensure Google Identity Services script is loaded
- */
 export const ensureGsiLoaded = (): Promise<boolean> => {
   return new Promise((resolve) => {
     if (typeof window === 'undefined') return resolve(false);
@@ -182,16 +167,10 @@ export const ensureGsiLoaded = (): Promise<boolean> => {
   });
 };
 
-/**
- * Trigger Google Sign-In with multi-strategy fallback:
- * 1. Try Google Identity Services (GSI) Token Client
- * 2. Fallback to Firebase signInWithPopup
- */
 export const googleSignIn = async (): Promise<{ user: any; accessToken: string } | null> => {
   isSigningIn = true;
   let primaryError: any = null;
 
-  // Strategy 1: Google Identity Services (GSI) token client (best for mobile and GitHub Pages)
   if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && firebaseConfig.oAuthClientId) {
     try {
       const gsiResult = await requestGsiToken(firebaseConfig.oAuthClientId);
@@ -212,7 +191,6 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
     }
   }
 
-  // Strategy 2: Firebase Popup
   try {
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -230,13 +208,10 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
 
     if (isPopupError) {
       console.info('Popup blocked or closed. Falling back to signInWithRedirect...');
-      // Execute redirect fallback immediately
       signInWithRedirect(auth, provider);
-      // Return a promise that never resolves so the UI stays in loading state until redirect happens
       return new Promise(() => {});
     }
 
-    // Genuine failure: log as warning
     console.warn('Google Drive Auth notice:', error?.message || error);
     const err = primaryError ? new Error(`${error.message || error} (GSI: ${primaryError.message})`) : error;
     (err as any).code = error.code || primaryError?.code;
@@ -246,23 +221,14 @@ export const googleSignIn = async (): Promise<{ user: any; accessToken: string }
   }
 };
 
-/**
- * Retrieve the active in-memory access token
- */
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
-/**
- * Set token manually (e.g. after successful signIn)
- */
 export const setCachedAccessToken = (token: string | null) => {
   persistToken(token);
 };
 
-/**
- * Sign out and flush cached token
- */
 export const googleSignOut = async () => {
   try {
     await signOut(auth);
