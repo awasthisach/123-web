@@ -6,6 +6,9 @@ const FOLDER_COLORS = ['blue', 'emerald', 'purple', 'amber', 'rose', 'indigo', '
 export interface DriveFetchResult {
   files: DriveFile[];
   folders: FolderItem[];
+  /** True when more Drive pages existed but we stopped at maxPages */
+  truncated: boolean;
+  pagesFetched: number;
 }
 
 export type DriveFileTypeFilter = 'all' | 'documents' | 'images' | 'videos' | 'spreadsheets' | 'pdfs' | 'folders';
@@ -35,12 +38,13 @@ function buildDriveQuery(fileType: DriveFileTypeFilter = 'all'): string {
 export async function fetchGoogleDriveData(
   accessToken: string,
   fileType: DriveFileTypeFilter = 'all',
-  maxPages: number = 4
+  maxPages: number = 20
 ): Promise<DriveFetchResult> {
   const fields = 'files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink,webViewLink,iconLink,parents,trashed,description,starred),nextPageToken';
   const query = buildDriveQuery(fileType);
   const rawItems: any[] = [];
   let pageToken: string | undefined;
+  let pagesFetched = 0;
 
   for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({
@@ -72,9 +76,12 @@ export async function fetchGoogleDriveData(
 
     const data = await response.json();
     rawItems.push(...(data.files || []));
+    pagesFetched = page + 1;
     pageToken = data.nextPageToken;
     if (!pageToken) break;
   }
+
+  const truncated = Boolean(pageToken);
 
   const folders: FolderItem[] = [];
   const files: DriveFile[] = [];
@@ -118,7 +125,7 @@ export async function fetchGoogleDriveData(
     }
   }
 
-  return { files, folders };
+  return { files, folders, truncated, pagesFetched };
 }
 
 export async function moveGoogleDriveFile(
