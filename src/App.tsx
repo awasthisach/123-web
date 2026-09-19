@@ -6,7 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { MoveToFolderModal } from './components/MoveToFolderModal';
 import { AuthErrorModal } from './components/AuthErrorModal';
-import { initAuth, googleSignIn, googleSignOut, getAccessToken } from './lib/firebaseAuth';
+import { initAuth, googleSignIn, googleSignOut, getAccessToken, ensureValidToken } from './lib/firebaseAuth';
 import {
   fetchGoogleDriveData,
   moveGoogleDriveFile,
@@ -51,6 +51,7 @@ export default function App() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [driveFileTypeFilter, setDriveFileTypeFilter] = useState<DriveFileTypeFilter>('all');
+  const [driveTruncated, setDriveTruncated] = useState(false);
   const [driveNotification, setDriveNotification] = useState<string | null>(null);
   const [authErrorModalOpen, setAuthErrorModalOpen] = useState(false);
   const [authErrorMessage, setAuthErrorMessage] = useState('');
@@ -95,6 +96,7 @@ export default function App() {
         try {
           setIsGoogleLoading(true);
           const driveData = await fetchGoogleDriveData(token, 'all');
+          setDriveTruncated(Boolean(driveData.truncated));
           if (driveData.files.length > 0 || driveData.folders.length > 0) {
             setFiles(prev => {
               const driveIds = new Set(driveData.files.map(f => f.id));
@@ -125,11 +127,12 @@ export default function App() {
   const handleUploadFile = (newFile: DriveFile) => setFiles(prev => [newFile, ...prev]);
 
   const handleUploadToDrive = async (file: File) => {
-    const token = googleAccessToken || (await getAccessToken());
+    const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (!token) {
       showDriveToast('Sign in required to upload to Google Drive');
       return;
     }
+    setGoogleAccessToken(token);
     try {
       setIsGoogleLoading(true);
       const uploaded = await uploadGoogleDriveFile(token, file);
@@ -171,6 +174,7 @@ export default function App() {
         });
         try {
           const driveData = await fetchGoogleDriveData(result.accessToken, driveFileTypeFilter);
+          setDriveTruncated(Boolean(driveData.truncated));
           if (driveData.files.length > 0 || driveData.folders.length > 0) {
             setFiles(prev => {
               const driveIds = new Set(driveData.files.map(f => f.id));
@@ -208,29 +212,32 @@ export default function App() {
 
   const handleGoogleSignOut = async () => {
     try {
-      await googleSignOut();
+      await googleSignOut({ revoke: true });
       setIsGoogleConnected(false);
       setGoogleAccessToken(null);
+      setDriveTruncated(false);
       setUserProfile(p => ({ ...p, isConnected: false, email: '' }));
       setFiles(INITIAL_FILES);
       setFolders(INITIAL_FOLDERS);
-      showDriveToast('Disconnected from Google Drive');
+      showDriveToast('Signed out and revoked Drive access');
     } catch (err) {
       console.error('Sign-out error:', err);
     }
   };
 
   const handleSyncGoogleDrive = async (fileType?: DriveFileTypeFilter) => {
-    const token = googleAccessToken || (await getAccessToken());
+    let token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (!token) {
       handleGoogleSignIn();
       return;
     }
+    setGoogleAccessToken(token);
     const typeToUse = fileType || driveFileTypeFilter;
     try {
       setIsGoogleLoading(true);
       if (fileType) setDriveFileTypeFilter(fileType);
       const driveData = await fetchGoogleDriveData(token, typeToUse);
+      setDriveTruncated(Boolean(driveData.truncated));
       setFiles(prev => {
         const driveIds = new Set(driveData.files.map(f => f.id));
         const remaining = prev.filter(f => !driveIds.has(f.id) && !f.isGoogleDriveItem);
@@ -242,14 +249,21 @@ export default function App() {
         return [...driveData.folders, ...remaining];
       });
       setSyncStats(s => ({ ...s, status: 'synced', totalSyncedCount: driveData.files.length, lastSynced: new Date().toISOString() }));
-      showDriveToast('Synced (' + typeToUse + '): ' + driveData.files.length + ' files loaded!');
+      const truncMsg = driveData.truncated ? ' (list capped — more files on Drive)' : '';
+      showDriveToast('Synced (' + typeToUse + '): ' + driveData.files.length + ' files' + truncMsg);
     } catch (err: any) {
       const msg = err?.message || 'Error';
       console.error('Sync failed:', msg);
-      if (String(msg).includes('401') || /invalid|auth|login/i.test(String(msg))) {
-        showDriveToast('Session expired — Sign in again');
-        setGoogleAccessToken(null);
-        setIsGoogleConnected(false);
+      if (String(msg).includes('401') || /invalid|auth|login|unauth/i.test(String(msg))) {
+        const refreshed = await ensureValidToken();
+        if (refreshed && refreshed !== token) {
+          setGoogleAccessToken(refreshed);
+          showDriveToast('Session refreshed — try Sync again');
+        } else {
+          showDriveToast('Session expired — Sign in again');
+          setGoogleAccessToken(null);
+          setIsGoogleConnected(false);
+        }
       } else {
         showDriveToast('Sync failed: ' + msg);
       }
@@ -261,7 +275,7 @@ export default function App() {
   const handleDeleteFile = async (id: string) => {
     const fileToDelete = files.find(f => f.id === id);
     if (!fileToDelete) return;
-    const token = googleAccessToken || (await getAccessToken());
+    const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (fileToDelete.isGoogleDriveItem) {
       if (!token) {
         showDriveToast('Sign in required to delete Drive files');
@@ -290,7 +304,7 @@ export default function App() {
       setFiles(prev => prev.filter(f => !localIds.has(f.id)));
     }
     if (driveItems.length === 0) return;
-    const token = googleAccessToken || (await getAccessToken());
+    const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (!token) {
       showDriveToast('Sign in required to delete Drive files');
       return;
@@ -318,7 +332,7 @@ export default function App() {
   };
 
   const handleCreateFolder = async (newFolder: FolderItem) => {
-    const token = googleAccessToken || (await getAccessToken());
+    const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (token && isGoogleConnected) {
       try {
         const created = await createGoogleDriveFolder(token, newFolder.name);
@@ -342,7 +356,7 @@ export default function App() {
     }
     const driveItems = snapshot.filter(f => f.isGoogleDriveItem);
     if (!driveItems.length) return;
-    const token = googleAccessToken || (await getAccessToken());
+    const token = (await ensureValidToken()) || googleAccessToken || (await getAccessToken());
     if (!token) {
       showDriveToast('Sign in required to move Drive files');
       return;
@@ -425,6 +439,7 @@ export default function App() {
             googleUserEmail={userProfile.email}
             onConnectGoogleDrive={handleGoogleSignIn} onConnectDemoDrive={handleConnectDemoDrive}
             onSyncGoogleDrive={handleSyncGoogleDrive}
+            driveTruncated={driveTruncated}
             driveFileTypeFilter={driveFileTypeFilter}
             onDriveFileTypeChange={t => { setDriveFileTypeFilter(t); handleSyncGoogleDrive(t); }}
           />
